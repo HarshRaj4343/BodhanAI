@@ -1,17 +1,36 @@
 import streamlit as st
 from backend import workflow
+import uuid
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-# Configure page
+
+# PAGE TITLE 
 st.set_page_config(page_title="Bodha")
 
-thread_id = '1'
-CONFIG = {'configurable':{'thread_id': thread_id}}
+# UTILITY Functions
+def generate_thread_id():
+    thread_id = uuid.uuid4()
+    return thread_id
 
-# 1. Initialize chat history at the very top
+def reset_chat():
+    thread_id = generate_thread_id()
+    st.session_state['thread_id'] = thread_id
+    st.session_state['messages'] = []
+
+# STARTUP Functions
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# 2. Render Custom CSS + HTML Layout
+if 'thread_id' not in st.session_state:
+    st.session_state['thread_id'] = generate_thread_id()
+
+
+# CONFIG
+
+CONFIG = {'configurable':{'thread_id': st.session_state['thread_id']}}
+
+# Lander Page - Title, Welcome Message + Message History printer
+
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@700&display=swap');
@@ -42,14 +61,29 @@ st.markdown("""
 
 st.markdown('<div class="company-name">Bodha</div>', unsafe_allow_html=True)
 
+
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
 if not st.session_state.messages:
-    st.markdown('<div class="banner-name">Ready to dive in, Harsh?</div>', unsafe_allow_html=True)
+    st.markdown('<div class="banner-name">Ready to dive in?</div>', unsafe_allow_html=True)
 
 prompt = st.chat_input("Ask Anything.....")
+
+
+# Sidebar Settings
+
+st.sidebar.title("Workbench")
+
+if st.sidebar.button("New Chat"):
+    reset_chat()
+
+st.sidebar.header("Recents")
+
+st.sidebar.text(st.session_state['thread_id'])
+
+# Recent Message Display
 
 if prompt:
 
@@ -61,7 +95,7 @@ if prompt:
         ai_msg = st.write_stream(
             message_chunk.content for message_chunk,metadata in workflow.stream(
                 {'messages':[HumanMessage(content=prompt)]},
-                config= {'configurable':{"thread_id": thread_id}},
+                config= CONFIG,
                 stream_mode= 'messages'
             )
         )

@@ -11,13 +11,12 @@ import os
 load_dotenv()
 
 # Get Groq API key from Streamlit Secrets (cloud) or environment variable (local)
-groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
+groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
 
 if not groq_api_key:
     st.error("API key not found. Please add GROQ_API_KEY to Streamlit Secrets.")
     st.stop()
 
-# Use Groq - much faster and better!
 llm = ChatGroq(
     model="openai/gpt-oss-120b",
     api_key=groq_api_key,
@@ -36,7 +35,6 @@ def chat_node(state: ChatState) -> ChatState:
     
     conversation = [system_msg] + messages
     
-    # Get response from Groq LLM
     response = llm.invoke(conversation)
     
     return {'messages': [response]}
