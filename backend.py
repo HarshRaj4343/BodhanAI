@@ -80,6 +80,13 @@ workflow = graph.compile(checkpointer=checkpointer)
 
 def retrieve_all_threads():
     all_threads = set()
-    for thread in checkpointer.list(None):
-        all_threads.add(thread)
+    for checkpoint in checkpointer.list(None):
+        if isinstance(checkpoint, dict):
+            config = checkpoint.get("config", checkpoint)
+        else:
+            config = checkpoint.config
+
+        thread_id = config.get("configurable", {}).get("thread_id")
+        if thread_id is not None:
+            all_threads.add(thread_id)
     return list(all_threads)

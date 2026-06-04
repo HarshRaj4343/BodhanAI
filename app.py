@@ -98,10 +98,10 @@ for message in (st.session_state.messages):
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if not st.session_state.messages:
-    st.markdown('<div class="banner-name">Ready to dive in?</div>', unsafe_allow_html=True)
-
 prompt = st.chat_input("Ask Anything.....")
+
+if not st.session_state.messages and not prompt:
+    st.markdown('<div class="banner-name">Ready to dive in?</div>', unsafe_allow_html=True)
 
 
 # Recent Message Display
