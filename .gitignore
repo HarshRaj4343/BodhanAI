@@ -44,3 +44,7 @@ wheels/
 
 # Logs
 *.log
+
+bodhanai
+bodhanai-shm
+bodhanai-wal

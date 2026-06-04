@@ -5,7 +5,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from typing import List
 
 # PAGE TITLE 
-st.set_page_config(page_title="BodhaAI")
+st.set_page_config(page_title="BodhanAI")
 
 
 # UTILITY Functions
@@ -68,7 +68,7 @@ st.markdown("""
      unsafe_allow_html=True
      )
 
-st.markdown('<div class="company-name">Bodha</div>', unsafe_allow_html=True)
+st.markdown('<div class="company-name">BodhanAI</div>', unsafe_allow_html=True)
 
 # Sidebar Settings
 
