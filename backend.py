@@ -1,42 +1,78 @@
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated, List
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage # Added SystemMessage
-from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from langchain_huggingface import HuggingFaceEndpoint
 from dotenv import load_dotenv
 from langgraph.graph.message import add_messages
-import operator
 from langgraph.checkpoint.memory import InMemorySaver
 import streamlit as st
+import os
+import re
+
 load_dotenv()
-api_token = st.secrets.get("HUGGINGFACEHUB_API_TOKEN") 
+
+api_token = st.secrets.get("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
 if not api_token:
     st.error("API key not found. Please add HUGGINGFACEHUB_API_TOKEN to Streamlit Secrets.")
     st.stop()
-    
-llm = HuggingFaceEndpoint(
-    repo_id="deepseek-ai/DeepSeek-V4-Pro", 
-    task="text-generation",
-    huggingfacehub_api_token=api_token
-)
 
-model = ChatHuggingFace(llm=llm)
+llm = HuggingFaceEndpoint(
+    repo_id="deepseek-ai/DeepSeek-R1",
+    huggingfacehub_api_token=api_token,
+    task="text-generation",
+    model_kwargs={
+        "temperature": 0.7,
+        "max_new_tokens": 512,
+    }
+)
 
 class ChatState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
 
+def extract_final_answer(response_text: str) -> str:
+    """Extract only the final answer, removing thinking/reasoning blocks"""
+    
+    
+    response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
+    
+    response_text = re.sub(r'\n*#{1,6}\s*.*thinking.*?\n', '', response_text, flags=re.IGNORECASE)
+    response_text = re.sub(r'\n*\*\*.*?thinking.*?\*\*\n', '', response_text, flags=re.IGNORECASE)
+    
+    response_text = re.sub(r'^.*?(let me|i think|hmm|so|therefore|conclusion):?\s*', '', response_text, flags=re.IGNORECASE | re.MULTILINE)
+    
+    
+    lines = response_text.strip().split('\n')
+    final_answer = []
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith('---') and not line.startswith('###'):
+            final_answer.append(line)
+    
+    result = '\n'.join(final_answer).strip()
+    
+    if len(result) > 500:
+        sentences = result.split('.')
+        result = sentences[0] + '.'
+    
+    return result if result else "I couldn't generate a proper response."
+
 def chat_node(state: ChatState) -> ChatState:
     messages = state["messages"]
     
-    system_msg = SystemMessage(
-        content="You are a chatbot. Provide precise answers to given prompts asked by users."
-    )
+    user_message = messages[-1].content if messages else ""
     
-    conversation = [system_msg] + messages
+    prompt = f"""Answer this directly and concisely: {user_message}"""
     
-    response = model.invoke(conversation)
+    response_text = llm.invoke(prompt)
     
-    return {'messages': [response]}
+   
+    clean_response = extract_final_answer(response_text)
+    
+    
+    ai_message = AIMessage(content=clean_response)
+    
+    return {'messages': [ai_message]}
 
 
 checkpointer = InMemorySaver()
