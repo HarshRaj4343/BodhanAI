@@ -4,3 +4,4 @@ langgraph>=0.0.50
 langchain-huggingface>=0.0.1
 python-dotenv>=1.0.0
 langchain-groq>=0.0.1
+langgraph-checkpoint-sqlite

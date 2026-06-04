@@ -4,9 +4,10 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from langgraph.graph.message import add_messages
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 import streamlit as st
 import os
+import sqlite3
 
 load_dotenv()
 
@@ -63,8 +64,12 @@ def chat_node(state: ChatState) -> ChatState:
     
     return {'messages': [response]}
 
+# connecting sqlite...
 
-checkpointer = InMemorySaver()
+conn = sqlite3.connect(database='bodhanai',check_same_thread=False)
+
+checkpointer = SqliteSaver(conn=conn)
+
 graph = StateGraph(ChatState)
 
 graph.add_node("Chat Node", chat_node)
@@ -73,3 +78,8 @@ graph.add_edge("Chat Node", END)
 
 workflow = graph.compile(checkpointer=checkpointer)
 
+def retrieve_all_threads():
+    all_threads = set()
+    for thread in checkpointer.list(None):
+        all_threads.add(thread)
+    return list(all_threads)

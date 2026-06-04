@@ -1,5 +1,5 @@
 import streamlit as st
-from backend import workflow,get_model_title
+from backend import workflow,get_model_title,retrieve_all_threads
 import uuid
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from typing import List
@@ -31,7 +31,7 @@ if "messages" not in st.session_state:
 if 'thread_id' not in st.session_state:
     st.session_state['thread_id'] = generate_thread_id()
 if "chat_threads" not in st.session_state:
-    st.session_state['chat_threads'] = []
+    st.session_state['chat_threads'] = retrieve_all_threads()
 add_thread(st.session_state['thread_id'])
 
 # CONFIG
