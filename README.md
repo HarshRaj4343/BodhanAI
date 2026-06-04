@@ -1,12 +1,12 @@
 # Bodha - Professional Chatbot
 
-A professional chatbot application built with Streamlit and LangGraph, powered by HuggingFace language models.
+A professional chatbot application built with Streamlit and LangGraph, powered by Groq language models.
 
 ## Features
 
 - Interactive chat interface using Streamlit
 - State management with LangGraph
-- HuggingFace LLM integration
+- Groq LLM integration
 - Persistent chat history
 - Professional UI with custom styling
 
@@ -45,8 +45,8 @@ pip install -r requirements.txt
 4. Create a `.env` file in the project root (see `.env.example` if provided):
 
 ```bash
-# Add your HuggingFace API key
-HUGGINGFACEHUB_API_TOKEN=your_token_here
+# Add your Groq API key
+GROQ_API_KEY=your_token_here
 ```
 
 ## Usage
@@ -83,7 +83,7 @@ bodha/
 ### backend.py
 
 - LangGraph state graph setup
-- HuggingFace LLM configuration
+- Groq LLM configuration
 - Chat node implementation
 - Message history management
 
@@ -92,12 +92,12 @@ bodha/
 - **streamlit**: Web app framework
 - **langchain-core**: Core LangChain utilities
 - **langgraph**: Graph-based workflow engine
-- **langchain-huggingface**: HuggingFace integration
+- **langchain-groq**: Groq integration
 - **python-dotenv**: Environment variable management
 
 ## Environment Variables
 
-- `HUGGINGFACEHUB_API_TOKEN`: Your HuggingFace API token (required)
+- `GROQ_API_KEY`: Your Groq API key (required)
 
 ## Author
 
