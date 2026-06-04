@@ -6,9 +6,14 @@ from dotenv import load_dotenv
 from langgraph.graph.message import add_messages
 import operator
 from langgraph.checkpoint.memory import InMemorySaver
-
+import streamlit as st
 load_dotenv()
+api_token = st.secrets.get("HUGGINGFACEHUB_API_TOKEN") 
 
+if not api_token:
+    st.error("API key not found. Please add HUGGINGFACEHUB_API_TOKEN to Streamlit Secrets.")
+    st.stop()
+    
 llm = HuggingFaceEndpoint(
     repo_id="openai/gpt-oss-20b", 
     task="text-generation"
