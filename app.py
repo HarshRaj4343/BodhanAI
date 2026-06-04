@@ -57,14 +57,14 @@ if prompt:
         st.markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    response = workflow.invoke({"messages": [HumanMessage(content=prompt)]}, config=CONFIG)
-    
-    # 3. Extract the clean string content from the last AI message
-    ai_msg = response['messages'][-1].content
-    
-    # 4. Display assistant message
     with st.chat_message("assistant"):
-        st.markdown(ai_msg)
+        ai_msg = st.write_stream(
+            message_chunk.content for message_chunk,metadata in workflow.stream(
+                {'messages':[HumanMessage(content=prompt)]},
+                config= {'configurable':{"thread_id": thread_id}},
+                stream_mode= 'messages'
+            )
+        )
     
     st.session_state.messages.append({"role": "assistant", "content": ai_msg})
     
