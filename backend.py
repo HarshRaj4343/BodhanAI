@@ -21,8 +21,7 @@ if not groq_api_key:
 llm = ChatGroq(
     model="openai/gpt-oss-120b",
     api_key=groq_api_key,
-    temperature=0.7,
-    max_tokens=256
+    temperature=0.7
 )
 
 class ChatState(TypedDict):
