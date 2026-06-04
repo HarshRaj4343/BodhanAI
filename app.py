@@ -80,7 +80,7 @@ if st.sidebar.button("New Chat"):
 st.sidebar.header("Recents")
 
 for thread_id in reversed(st.session_state['chat_threads']):
-    if st.sidebar.button(get_model_title(st.session_state.messages)):
+    if st.sidebar.button(get_model_title(st.session_state.messages), key=f"thread-{thread_id}"):
         st.session_state['thread_id'] = thread_id
         response = load_conv(thread_id=thread_id)
         
