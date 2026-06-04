@@ -4,7 +4,8 @@ import uuid
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
 # PAGE TITLE 
-st.set_page_config(page_title="Bodha")
+st.set_page_config(page_title="BodhaAI")
+
 
 # UTILITY Functions
 def generate_thread_id():
@@ -19,6 +20,9 @@ def reset_chat():
 def add_thread(thread_id):
     if thread_id not in st.session_state['chat_threads']:
         st.session_state['chat_threads'].append(thread_id)
+def load_conv(thread_id):
+    return workflow.get_state(config={'configurable':{'thread_id': st.session_state['thread_id']}}).values['messages']
+
 
 
 # STARTUP Functions
@@ -30,9 +34,10 @@ if 'thread_id' not in st.session_state:
 if "chat_threads" not in st.session_state:
     st.session_state['chat_threads'] = []
 add_thread(st.session_state['thread_id'])
-# CONFIG
 
+# CONFIG
 CONFIG = {'configurable':{'thread_id': st.session_state['thread_id']}}
+
 
 # Lander Page - Title, Welcome Message + Message History printer
 
@@ -76,9 +81,21 @@ if st.sidebar.button("New Chat"):
 st.sidebar.header("Recents")
 
 for thread_id in st.session_state['chat_threads']:
-    st.sidebar.text(thread_id)
+    if st.sidebar.button(str(thread_id)):
+        st.session_state['thread_id'] = thread_id
+        response = load_conv(thread_id=thread_id)
+        
+        temp_messages = []
+        for msg in response:
+            if isinstance(msg,HumanMessage):
+                role = 'user'
+            else:
+                role = 'assistant'
+            temp_messages.append({"role":role,"content":msg.content})
+        st.session_state['messages']= temp_messages
 
-for message in st.session_state.messages:
+
+for message in (st.session_state.messages):
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
