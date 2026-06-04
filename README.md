@@ -99,10 +99,6 @@ bodha/
 
 - `HUGGINGFACEHUB_API_TOKEN`: Your HuggingFace API token (required)
 
-## License
-
-[Add your license information here]
-
 ## Author
 
 Harsh
