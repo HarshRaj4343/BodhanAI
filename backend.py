@@ -15,7 +15,7 @@ if not api_token:
     st.stop()
     
 llm = HuggingFaceEndpoint(
-    repo_id="openai/gpt-oss-20b", 
+    repo_id="meta-llama/Llama-2-13b-chat-hf", 
     task="text-generation",
     huggingface_api_token=api_token
 )
