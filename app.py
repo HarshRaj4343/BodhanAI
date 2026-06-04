@@ -24,17 +24,6 @@ if "messages" not in st.session_state:
 if 'thread_id' not in st.session_state:
     st.session_state['thread_id'] = generate_thread_id()
 
-# Sidebar Settings
-
-st.sidebar.title("Workbench")
-
-if st.sidebar.button("New Chat"):
-    reset_chat()
-
-st.sidebar.header("Recents")
-
-st.sidebar.text(st.session_state['thread_id'])
-
 # CONFIG
 
 CONFIG = {'configurable':{'thread_id': st.session_state['thread_id']}}
@@ -81,6 +70,19 @@ if not st.session_state.messages:
 
 prompt = st.chat_input("Ask Anything.....")
 
+
+# Sidebar Settings
+
+st.sidebar.title("Workbench")
+
+if st.sidebar.button("New Chat"):
+    reset_chat()
+
+st.sidebar.header("Recents")
+if prompt != None:
+    st.sidebar.text(prompt)
+else:
+    st.sidebar.text("New Chat")
 
 
 # Recent Message Display

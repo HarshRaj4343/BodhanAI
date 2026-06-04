@@ -30,7 +30,7 @@ def chat_node(state: ChatState) -> ChatState:
     messages = state["messages"]
     
     system_msg = SystemMessage(
-        content="You are a helpful and concise chatbot. Provide direct, clear answers without overthinking or verbose explanations."
+        content="You are a helpful and concise chatbot.Your name is BodhAI. Provide direct, clear answers without overthinking or verbose explanations."
     )
     
     conversation = [system_msg] + messages
