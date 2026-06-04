@@ -45,7 +45,7 @@ def get_model_title(hist: List):
         Title:
         """
     response = llm.invoke(prompt)
-    return response
+    return response.content
 
 class ChatState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
