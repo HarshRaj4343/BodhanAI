@@ -15,7 +15,7 @@ if not api_token:
     st.stop()
     
 llm = HuggingFaceEndpoint(
-    repo_id="meta-llama/Llama-2-13b-chat-hf", 
+    repo_id="deepseek-ai/DeepSeek-V4-Pro", 
     task="text-generation",
     huggingfacehub_api_token=api_token
 )
