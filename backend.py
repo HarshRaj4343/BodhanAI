@@ -17,7 +17,7 @@ if not api_token:
 llm = HuggingFaceEndpoint(
     repo_id="meta-llama/Llama-2-13b-chat-hf", 
     task="text-generation",
-    huggingface_api_token=api_token
+    huggingfacehub_api_token=api_token
 )
 
 model = ChatHuggingFace(llm=llm)
