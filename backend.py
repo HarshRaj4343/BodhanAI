@@ -1,78 +1,46 @@
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated, List
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from langchain_huggingface import HuggingFaceEndpoint
+from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import InMemorySaver
 import streamlit as st
 import os
-import re
 
 load_dotenv()
 
-api_token = st.secrets.get("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HUGGINGFACEHUB_API_TOKEN")
+# Get Groq API key from Streamlit Secrets (cloud) or environment variable (local)
+groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
 
-if not api_token:
-    st.error("API key not found. Please add HUGGINGFACEHUB_API_TOKEN to Streamlit Secrets.")
+if not groq_api_key:
+    st.error("API key not found. Please add GROQ_API_KEY to Streamlit Secrets.")
     st.stop()
 
-llm = HuggingFaceEndpoint(
-    repo_id="deepseek-ai/DeepSeek-R1",
-    huggingfacehub_api_token=api_token,
-    task="text-generation",
-    model_kwargs={
-        "temperature": 0.7,
-        "max_new_tokens": 512,
-    }
+# Use Groq - much faster and better!
+llm = ChatGroq(
+    model="mixtral-8x7b-32768",
+    api_key=groq_api_key,
+    temperature=0.7,
+    max_tokens=256
 )
 
 class ChatState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
 
-def extract_final_answer(response_text: str) -> str:
-    """Extract only the final answer, removing thinking/reasoning blocks"""
-    
-    
-    response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
-    
-    response_text = re.sub(r'\n*#{1,6}\s*.*thinking.*?\n', '', response_text, flags=re.IGNORECASE)
-    response_text = re.sub(r'\n*\*\*.*?thinking.*?\*\*\n', '', response_text, flags=re.IGNORECASE)
-    
-    response_text = re.sub(r'^.*?(let me|i think|hmm|so|therefore|conclusion):?\s*', '', response_text, flags=re.IGNORECASE | re.MULTILINE)
-    
-    
-    lines = response_text.strip().split('\n')
-    final_answer = []
-    for line in lines:
-        line = line.strip()
-        if line and not line.startswith('---') and not line.startswith('###'):
-            final_answer.append(line)
-    
-    result = '\n'.join(final_answer).strip()
-    
-    if len(result) > 500:
-        sentences = result.split('.')
-        result = sentences[0] + '.'
-    
-    return result if result else "I couldn't generate a proper response."
-
 def chat_node(state: ChatState) -> ChatState:
     messages = state["messages"]
     
-    user_message = messages[-1].content if messages else ""
+    system_msg = SystemMessage(
+        content="You are a helpful and concise chatbot. Provide direct, clear answers without overthinking or verbose explanations."
+    )
     
-    prompt = f"""Answer this directly and concisely: {user_message}"""
+    conversation = [system_msg] + messages
     
-    response_text = llm.invoke(prompt)
+    # Get response from Groq LLM
+    response = llm.invoke(conversation)
     
-   
-    clean_response = extract_final_answer(response_text)
-    
-    
-    ai_message = AIMessage(content=clean_response)
-    
-    return {'messages': [ai_message]}
+    return {'messages': [response]}
 
 
 checkpointer = InMemorySaver()
