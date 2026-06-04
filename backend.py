@@ -16,7 +16,8 @@ if not api_token:
     
 llm = HuggingFaceEndpoint(
     repo_id="openai/gpt-oss-20b", 
-    task="text-generation"
+    task="text-generation",
+    huggingface_api_token=api_token
 )
 
 model = ChatHuggingFace(llm=llm)
