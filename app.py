@@ -66,17 +66,6 @@ st.markdown("""
 
 st.markdown('<div class="company-name">Bodha</div>', unsafe_allow_html=True)
 
-
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-if not st.session_state.messages:
-    st.markdown('<div class="banner-name">Ready to dive in?</div>', unsafe_allow_html=True)
-
-prompt = st.chat_input("Ask Anything.....")
-
-
 # Sidebar Settings
 
 st.sidebar.title("Workbench")
@@ -88,6 +77,16 @@ st.sidebar.header("Recents")
 
 for thread_id in st.session_state['chat_threads']:
     st.sidebar.text(thread_id)
+
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+if not st.session_state.messages:
+    st.markdown('<div class="banner-name">Ready to dive in?</div>', unsafe_allow_html=True)
+
+prompt = st.chat_input("Ask Anything.....")
+
 
 # Recent Message Display
 
