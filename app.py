@@ -1,7 +1,8 @@
 import streamlit as st
-from backend import workflow
+from backend import workflow,get_model_title
 import uuid
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from typing import List
 
 # PAGE TITLE 
 st.set_page_config(page_title="BodhaAI")
@@ -22,8 +23,6 @@ def add_thread(thread_id):
         st.session_state['chat_threads'].append(thread_id)
 def load_conv(thread_id):
     return workflow.get_state(config={'configurable':{'thread_id': st.session_state['thread_id']}}).values['messages']
-
-
 
 # STARTUP Functions
 
@@ -81,7 +80,7 @@ if st.sidebar.button("New Chat"):
 st.sidebar.header("Recents")
 
 for thread_id in reversed(st.session_state['chat_threads']):
-    if st.sidebar.button(str(thread_id)):
+    if st.sidebar.button(get_model_title(st.session_state.messages)):
         st.session_state['thread_id'] = thread_id
         response = load_conv(thread_id=thread_id)
         

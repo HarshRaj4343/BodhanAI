@@ -23,6 +23,30 @@ llm = ChatGroq(
     temperature=0.7
 )
 
+def get_model_title(hist: List):
+    prompt = f"""You are an expert conversation summarizer.
+
+        Your task is to generate a concise title for a chatbot conversation.
+
+        Rules:
+        - Return ONLY the title.
+        - Maximum 6 words.
+        - Prefer 2–5 words when possible.
+        - Capture the main topic, intent, or problem discussed.
+        - Do not use quotation marks, punctuation, emojis, or prefixes like "Title:".
+        - Use title case.
+        - Be specific rather than generic.
+        - If the conversation is about debugging, mention the technology and issue.
+        - If multiple topics exist, focus on the primary one.
+        - Do not explain your reasoning.
+
+        Conversation:
+        {hist}
+        Title:
+        """
+    response = llm.invoke(prompt)
+    return response
+
 class ChatState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
 
@@ -48,3 +72,4 @@ graph.add_edge(START, "Chat Node")
 graph.add_edge("Chat Node", END)
 
 workflow = graph.compile(checkpointer=checkpointer)
+
