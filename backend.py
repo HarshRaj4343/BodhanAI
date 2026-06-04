@@ -19,7 +19,7 @@ if not groq_api_key:
 
 # Use Groq - much faster and better!
 llm = ChatGroq(
-    model="mixtral-8x7b-32768",
+    model="openai/gpt-oss-120b",
     api_key=groq_api_key,
     temperature=0.7,
     max_tokens=256
