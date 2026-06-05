@@ -1,3 +1,5 @@
+# ------------------------------------------------IMPORTS------------------------------------------------
+
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated, List
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
@@ -9,7 +11,11 @@ import streamlit as st
 import os
 import sqlite3
 
+# ------------------------------------------------CONNECTING .env------------------------------------------------
+
 load_dotenv()
+
+# ------------------------------------------------SETTING UP LLM------------------------------------------------
 
 # Get Groq API key from Streamlit Secrets (cloud) or environment variable (local)
 groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
@@ -24,6 +30,8 @@ llm = ChatGroq(
     temperature=0.7
 )
 
+# ------------------------------------------------Conversation Title Maker------------------------------------------------
+
 def get_model_title(hist: List):
     prompt = f"""You are an expert conversation summarizer.
 
@@ -32,7 +40,7 @@ def get_model_title(hist: List):
         Rules:
         - Return ONLY the title.
         - Maximum 6 words.
-        - Prefer 2–5 words when possible.
+        - Prefer 2 to 5 words when possible.
         - Capture the main topic, intent, or problem discussed.
         - Do not use quotation marks, punctuation, emojis, or prefixes like "Title:".
         - Use title case.
@@ -47,6 +55,9 @@ def get_model_title(hist: List):
         """
     response = llm.invoke(prompt)
     return response.content
+
+# ------------------------------------------------Setting up the Graph------------------------------------------------
+
 
 class ChatState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
@@ -64,29 +75,80 @@ def chat_node(state: ChatState) -> ChatState:
     
     return {'messages': [response]}
 
-# connecting sqlite...
+# ------------------------------------------------Connecting to SQLite------------------------------------------------
 
 conn = sqlite3.connect(database='bodhanai',check_same_thread=False)
 
 checkpointer = SqliteSaver(conn=conn)
 
-graph = StateGraph(ChatState)
+cursor = conn.cursor()
 
+cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_titles (
+            thread_id TEXT PRIMARY KEY,
+            title TEXT
+        )
+""")
+
+conn.commit()
+
+# ------------------------------------------------Making the Graph------------------------------------------------
+
+graph = StateGraph(ChatState)
 graph.add_node("Chat Node", chat_node)
 graph.add_edge(START, "Chat Node")
 graph.add_edge("Chat Node", END)
 
 workflow = graph.compile(checkpointer=checkpointer)
 
+# ------------------------------------------------fetch all unique conversation thread IDs------------------------------------------------
+
 def retrieve_all_threads():
     all_threads = set()
+    # Assuming 'checkpointer' is your SQLite checkpointer instance
     for checkpoint in checkpointer.list(None):
-        if isinstance(checkpoint, dict):
-            config = checkpoint.get("config", checkpoint)
-        else:
-            config = checkpoint.config
-
-        thread_id = config.get("configurable", {}).get("thread_id")
-        if thread_id is not None:
-            all_threads.add(thread_id)
+        thread_id = checkpoint.config["configurable"]["thread_id"]
+        all_threads.add(thread_id)
     return list(all_threads)
+
+# ------------------------------------------------Chat Title Utility Fxns------------------------------------------------
+
+def save_title(thread_id, title):
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT OR REPLACE INTO chat_titles
+    (thread_id, title)
+    VALUES (?, ?)
+    """, (str(thread_id), title))
+
+    conn.commit()
+
+
+def get_title(thread_id):
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT title
+    FROM chat_titles
+    WHERE thread_id = ?
+    """, (str(thread_id),))
+
+    result = cursor.fetchone()
+
+    if result:
+        return result[0]
+
+    return "New Chat"
+
+
+def title_exists(thread_id):
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT 1
+    FROM chat_titles
+    WHERE thread_id = ?
+    """, (str(thread_id),))
+
+    return cursor.fetchone() is not None
