@@ -48,6 +48,7 @@ def get_model_title(hist: List):
         - If the conversation is about debugging, mention the technology and issue.
         - If multiple topics exist, focus on the primary one.
         - Do not explain your reasoning.
+        - the main thing is that this title is to be seen by user , so make it seem like it is for a user : like first person view
 
         Conversation:
         {hist}
