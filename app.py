@@ -9,6 +9,49 @@ from typing import List
 # ------------------------------------------------Set Page Title------------------------------------------------
 st.set_page_config(page_title="BodhanAI")
 
+# ------------------------------------------------Custom Button Styling------------------------------------------------
+st.markdown("""
+<style>
+    /* New Chat Button */
+    div[data-testid="stVerticalBlock"] > [data-testid="stButton"] button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        padding: 12px 24px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    div[data-testid="stVerticalBlock"] > [data-testid="stButton"] button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+    }
+    
+    /* Thread Buttons in Sidebar */
+    div[data-testid="stSidebar"] [data-testid="stButton"] button {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 500;
+        width: 100%;
+        padding: 10px 16px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 12px rgba(245, 87, 108, 0.3);
+        margin: 4px 0;
+    }
+    
+    div[data-testid="stSidebar"] [data-testid="stButton"] button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 18px rgba(245, 87, 108, 0.5);
+        background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%);
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ------------------------------------------------UTILITY Fxns------------------------------------------------
 def generate_thread_id():
     thread_id = uuid.uuid4()
