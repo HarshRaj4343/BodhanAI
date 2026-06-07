@@ -11,3 +11,4 @@ ddgs
 langchain-tavily
 aiosqlite
 langchain-mcp-adapters
+aiohttp
