@@ -31,6 +31,7 @@ llm = ChatGroq(
     model="openai/gpt-oss-120b",
 )
 
+tavily_key = os.getenv("TAVILY_API_KEY") or st.secrets["TAVILY_API_KEY"]
 
 # ------------------------------------------------Setting up Tools------------------------------------------------
 
