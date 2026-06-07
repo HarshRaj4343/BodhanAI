@@ -89,12 +89,13 @@ client = MultiServerMCPClient(
 # ------------------------------------------------Loading the MCP tools------------------------------------------------
 def load_mcp_tools() -> list[BaseTool]:
     try:
-        return run_async(client.get_tools())
+        tools = run_async(client.get_tools())
+        print(f"MCP loading succeeded: {[t.name for t in tools]}")
+        return tools
     except Exception as e:
         print(f"MCP loading failed: {e}")
         return []
 mcp_tools = load_mcp_tools()
-
 # ------------------------------------------------Binding the tools------------------------------------------------
 tools = [get_stock_price, search_tool,*mcp_tools]
 
