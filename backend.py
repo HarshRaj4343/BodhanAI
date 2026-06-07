@@ -80,14 +80,6 @@ async def get_stock_price(symbol: str) -> dict:
 
 client = MultiServerMCPClient(
     {
-        "github": {
-            "transport": "stdio",
-            "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-github"],
-            "env": {
-    "GITHUB_PERSONAL_ACCESS_TOKEN": os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
-}
-        },
         "date-time-tools": {
             "transport": "streamable_http",
             "url": "https://date-time-tools.iabhishek.workers.dev/mcp"
@@ -95,13 +87,12 @@ client = MultiServerMCPClient(
     }
 )
 # ------------------------------------------------Loading the MCP tools------------------------------------------------
-
 def load_mcp_tools() -> list[BaseTool]:
     try:
         return run_async(client.get_tools())
-    except Exception:
+    except Exception as e:
+        print(f"MCP loading failed: {e}")
         return []
-
 mcp_tools = load_mcp_tools()
 
 # ------------------------------------------------Binding the tools------------------------------------------------
