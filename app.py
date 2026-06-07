@@ -3,7 +3,7 @@
 import streamlit as st
 from backend import workflow,get_model_title,retrieve_all_threads,save_title,get_title,title_exists
 import uuid
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 from typing import List
 
 # ------------------------------------------------Set Page Title------------------------------------------------
@@ -95,14 +95,41 @@ if prompt:
         st.markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
+    # Assistant streaming block
     with st.chat_message("assistant"):
-        ai_msg = st.write_stream(
-            message_chunk.content for message_chunk,metadata in workflow.stream(
-                {'messages':[HumanMessage(content=prompt)]},
-                config= CONFIG,
-                stream_mode= 'messages'
+        # Use a mutable holder so the generator can set/modify it
+        status_holder = {"box": None}
+
+        def ai_only_stream():
+            for message_chunk, metadata in workflow.stream(
+                {"messages": [HumanMessage(content=prompt)]},
+                config=CONFIG,
+                stream_mode="messages",
+            ):
+                # Lazily create & update the SAME status container when any tool runs
+                if isinstance(message_chunk, ToolMessage):
+                    tool_name = getattr(message_chunk, "name", "tool")
+                    if status_holder["box"] is None:
+                        status_holder["box"] = st.status(
+                            f"🔧 Using `{tool_name}` …", expanded=True
+                        )
+                    else:
+                        status_holder["box"].update(
+                            label=f"🔧 Using `{tool_name}` …",
+                            state="running",
+                            expanded=True,
+                        )
+
+                # Stream ONLY assistant tokens
+                if isinstance(message_chunk, AIMessage):
+                    yield message_chunk.content
+        ai_msg = st.write_stream(ai_only_stream())
+
+        # Finalize only if a tool was actually used
+        if status_holder["box"] is not None:
+            status_holder["box"].update(
+                label="✅ Tool finished", state="complete", expanded=True
             )
-        )
 
 # applied title storage in sql
 

@@ -8,7 +8,10 @@ from dotenv import load_dotenv
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.sqlite import SqliteSaver
 import streamlit as st
-import os
+import os,requests
+from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_tavily import TavilySearch
+from langchain_core.tools import tool
 import sqlite3
 
 # ------------------------------------------------CONNECTING .env------------------------------------------------
@@ -26,9 +29,56 @@ if not groq_api_key:
 
 llm = ChatGroq(
     model="openai/gpt-oss-120b",
-    api_key=groq_api_key,
-    temperature=0.7
 )
+
+
+# ------------------------------------------------Setting up Tools------------------------------------------------
+
+search_tool = TavilySearch(
+    max_results=3,
+    search_depth="basic",
+    include_answer=True,
+)
+@tool
+def calculator(first_num: float, second_num: float, operation: str) -> dict:
+    """
+    Perform a basic arithmetic operation on two numbers.
+    Supported operations: add, sub, mul, div
+    """
+    try:
+        if operation == "add":
+            result = first_num + second_num
+        elif operation == "sub":
+            result = first_num - second_num
+        elif operation == "mul":
+            result = first_num * second_num
+        elif operation == "div":
+            if second_num == 0:
+                return {"error": "Division by zero is not allowed"}
+            result = first_num / second_num
+        else:
+            return {"error": f"Unsupported operation '{operation}'"}
+        
+        return {"first_num": first_num, "second_num": second_num, "operation": operation, "result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@tool
+def get_stock_price(symbol: str) -> dict:
+    """
+    Fetch latest stock price for a given symbol (e.g. 'AAPL', 'TSLA') 
+    using Alpha Vantage with API key in the URL.
+    """
+    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=QPBT1S9TKAAET4CS"
+    r = requests.get(url)
+    return r.json()
+
+tools = [get_stock_price,search_tool, calculator]
+
+# ------------------------------------------------Binding the tools------------------------------------------------
+
+llm_with_tools = llm.bind_tools(tools)
 
 # ------------------------------------------------Conversation Title Maker------------------------------------------------
 
@@ -67,15 +117,16 @@ def chat_node(state: ChatState) -> ChatState:
     messages = state["messages"]
     
     system_msg = SystemMessage(
-        content="You are a helpful and concise chatbot. Your name is BodhanAI. Provide direct, clear answers without overthinking or verbose explanations."
+        content="You are a helpful and concise chatbot. Your name is BodhanAI. Provide direct, clear answers without overthinking or verbose explanations.Never use LaTeX formatting (like \\[ or \\boxed) for math equations. Always use plain text and standard symbols (like * for multiplication)."
     )
     
     conversation = [system_msg] + messages
     
-    response = llm.invoke(conversation)
+    response = llm_with_tools.invoke(conversation)
     
     return {'messages': [response]}
 
+tool_node = ToolNode(tools)
 # ------------------------------------------------Connecting to SQLite------------------------------------------------
 
 conn = sqlite3.connect(database='bodhanai',check_same_thread=False)
@@ -97,8 +148,10 @@ conn.commit()
 
 graph = StateGraph(ChatState)
 graph.add_node("Chat Node", chat_node)
+graph.add_node("tools",tool_node)
 graph.add_edge(START, "Chat Node")
-graph.add_edge("Chat Node", END)
+graph.add_conditional_edges("Chat Node", tools_condition)
+graph.add_edge("tools","Chat Node")
 
 workflow = graph.compile(checkpointer=checkpointer)
 
