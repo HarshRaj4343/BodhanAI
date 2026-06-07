@@ -1,103 +1,129 @@
 # ------------------------------------------------IMPORTS------------------------------------------------
 
 import streamlit as st
-from backend import workflow, get_model_title, retrieve_all_threads, save_title, get_title, title_exists, run_async
+from backend import (
+    workflow, get_model_title, retrieve_all_threads,
+    save_title, get_title, title_exists, run_async,
+    ingest_pdf, thread_document_metadata,
+)
 import uuid
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
-from typing import List
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 # ------------------------------------------------Set Page Title------------------------------------------------
 st.set_page_config(page_title="BodhanAI")
 
 # ------------------------------------------------UTILITY Fxns------------------------------------------------
+
 def generate_thread_id():
-    thread_id = uuid.uuid4()
-    return thread_id
+    return uuid.uuid4()
 
 def reset_chat():
     thread_id = generate_thread_id()
-    st.session_state['thread_id'] = thread_id
-    add_thread(st.session_state['thread_id'])
-    st.session_state['messages'] = []
+    st.session_state["thread_id"] = thread_id
+    st.session_state["ingested_docs"].setdefault(str(thread_id), {})
+    add_thread(thread_id)
+    st.session_state["messages"] = []
 
 def add_thread(thread_id):
-    if thread_id not in st.session_state['chat_threads']:
-        st.session_state['chat_threads'].append(thread_id)
+    if thread_id not in st.session_state["chat_threads"]:
+        st.session_state["chat_threads"].append(thread_id)
 
 def load_conv(thread_id):
-    state = workflow.get_state(config={'configurable':{'thread_id': st.session_state['thread_id']}})
+    state = workflow.get_state(config={"configurable": {"thread_id": thread_id}})
     if state and state.values:
-        return state.values.get('messages', [])
+        return state.values.get("messages", [])
     return []
 
-# ------------------------------------------------STARTUP Fxns------------------------------------------------
+# ------------------------------------------------STARTUP------------------------------------------------
 
 if "messages" not in st.session_state:
-    st.session_state['messages'] = []
-if 'thread_id' not in st.session_state:
-    st.session_state['thread_id'] = generate_thread_id()
+    st.session_state["messages"] = []
+if "thread_id" not in st.session_state:
+    st.session_state["thread_id"] = generate_thread_id()
 if "chat_threads" not in st.session_state:
-    st.session_state['chat_threads'] = retrieve_all_threads()
-add_thread(st.session_state['thread_id'])
+    st.session_state["chat_threads"] = retrieve_all_threads()
+if "ingested_docs" not in st.session_state:
+    st.session_state["ingested_docs"] = {}
 
-# ------------------------------------------------CONFIG------------------------------------------------
+add_thread(st.session_state["thread_id"])
+
+# ------------------------------------------------RECOMPUTE EVERY RERUN------------------------------------------------
+
+thread_key = str(st.session_state["thread_id"])
+thread_docs = st.session_state["ingested_docs"].setdefault(thread_key, {})
 
 CONFIG = {
-    "configurable": {"thread_id": st.session_state["thread_id"]},
-    "metadata": {
-        "thread_id": st.session_state["thread_id"],
-        "run_name": "chat_turn"
-    }
+    "configurable": {"thread_id": thread_key},
+    "metadata": {"thread_id": thread_key, "run_name": "chat_turn"},
 }
 
-# ------------------------------------------------Sidebar Settings------------------------------------------------
+# ------------------------------------------------Sidebar------------------------------------------------
 
 st.sidebar.title("Workbench")
+
 if st.sidebar.button("New Chat"):
     reset_chat()
+    st.rerun()
 
-st.sidebar.header("Recents")
+st.sidebar.subheader("📄 PDF Upload")
 
-for thread_id in reversed(st.session_state['chat_threads']):
+if thread_docs:
+    latest = list(thread_docs.values())[-1]
+    st.sidebar.success(
+        f"Using `{latest.get('filename')}` "
+        f"({latest.get('chunks')} chunks, {latest.get('documents')} pages)"
+    )
+else:
+    st.sidebar.info("No PDF indexed for this chat.")
+
+uploaded_pdf = st.sidebar.file_uploader("Upload a PDF for this chat", type=["pdf"])
+if uploaded_pdf:
+    if uploaded_pdf.name in thread_docs:
+        st.sidebar.info(f"`{uploaded_pdf.name}` already processed.")
+    else:
+        with st.sidebar.status("Indexing PDF…", expanded=True) as status_box:
+            summary = ingest_pdf(
+                uploaded_pdf.getvalue(),
+                thread_id=thread_key,
+                filename=uploaded_pdf.name,
+            )
+            thread_docs[uploaded_pdf.name] = summary
+            status_box.update(label="✅ PDF indexed", state="complete", expanded=False)
+
+st.sidebar.subheader("Recents")
+
+for thread_id in reversed(st.session_state["chat_threads"]):
     title = get_title(thread_id)
     if st.sidebar.button(title, key=f"thread-{thread_id}"):
-        st.session_state['thread_id'] = thread_id
+        st.session_state["thread_id"] = thread_id
         response = load_conv(thread_id=thread_id)
-
         temp_messages = []
         for msg in response:
-            if isinstance(msg, HumanMessage):
-                role = 'user'
-            else:
-                role = 'assistant'
+            role = "user" if isinstance(msg, HumanMessage) else "assistant"
             temp_messages.append({"role": role, "content": msg.content})
-        st.session_state['messages'] = temp_messages
+        st.session_state["messages"] = temp_messages
+        st.session_state["ingested_docs"].setdefault(str(thread_id), {})
+        st.rerun()
 
-# ------------------------------------------------Displaying the Messages------------------------------------------------
+# ------------------------------------------------Displaying Messages------------------------------------------------
 
-for message in st.session_state.messages:
+for message in st.session_state["messages"]:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# ------------------------------------------------Taking User's Prompt------------------------------------------------
+# ------------------------------------------------Chat Input + Streaming------------------------------------------------
 
 prompt = st.chat_input("Ask Anything.....")
 
-# ------------------------------------------------Recent Message Display + Streaming------------------------------------------------
-
 if prompt:
-
     with st.chat_message("user"):
         st.markdown(prompt)
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.session_state["messages"].append({"role": "user", "content": prompt})
 
-    # Assistant streaming block
     with st.chat_message("assistant"):
         status_holder = {"box": None}
 
         def ai_only_stream():
-            tool_names = []
-
             async def _astream():
                 async for message_chunk, metadata in workflow.astream(
                     {"messages": [HumanMessage(content=prompt)]},
@@ -106,45 +132,37 @@ if prompt:
                 ):
                     if isinstance(message_chunk, ToolMessage):
                         tool_name = getattr(message_chunk, "name", "tool")
-                        tool_names.append(tool_name)
-                    if isinstance(message_chunk, AIMessage):
-                        yield message_chunk.content
+                        yield ("tool", tool_name)
+                    if isinstance(message_chunk, AIMessage) and message_chunk.content:
+                        yield ("text", message_chunk.content)
 
             async_gen = _astream()
             while True:
                 try:
-                    chunk = run_async(async_gen.__anext__())
-                    # update status box here — in the main thread
-                    if tool_names:
-                        tool_name = tool_names[-1]
+                    kind, value = run_async(async_gen.__anext__())
+                    if kind == "tool":
                         if status_holder["box"] is None:
-                            status_holder["box"] = st.status(f"🔧 Using `{tool_name}` …", expanded=True)
+                            status_holder["box"] = st.status(f"🔧 Using `{value}` …", expanded=True)
                         else:
-                            status_holder["box"].update(label=f"🔧 Using `{tool_name}` …", state="running", expanded=True)
-                    yield chunk
+                            status_holder["box"].update(label=f"🔧 Using `{value}` …", state="running", expanded=True)
+                    elif kind == "text":
+                        yield value
                 except StopAsyncIteration:
                     break
 
         ai_msg = st.write_stream(ai_only_stream())
 
         if status_holder["box"] is not None:
-            status_holder["box"].update(
-                label="✅ Tool finished", state="complete", expanded=True
-            )
+            status_holder["box"].update(label="✅ Tool finished", state="complete", expanded=True)
 
-    st.session_state.messages.append(
-        {
-            "role": "assistant",
-            "content": ai_msg
-        }
-    )
+    st.session_state["messages"].append({"role": "assistant", "content": ai_msg})
 
-    thread_id = st.session_state["thread_id"]
+    doc_meta = thread_document_metadata(thread_key)
+    if doc_meta:
+        st.caption(f"Document: `{doc_meta.get('filename')}` — {doc_meta.get('chunks')} chunks, {doc_meta.get('documents')} pages")
 
-    if not title_exists(thread_id):
-        title = run_async(get_model_title(
-            st.session_state.messages
-        ))
-        save_title(thread_id, title)
+    if not title_exists(thread_key):
+        title = run_async(get_model_title(st.session_state["messages"]))
+        save_title(thread_key, title)
 
     st.rerun()

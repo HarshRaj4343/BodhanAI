@@ -12,3 +12,7 @@ langchain-tavily
 aiosqlite
 langchain-mcp-adapters
 aiohttp
+langchain-community
+langchain
+faiss-cpu
+pypdf
