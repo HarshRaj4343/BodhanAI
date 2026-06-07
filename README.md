@@ -1,495 +1,330 @@
-# BodhanAI - Professional Chatbot
+<h1 align="center">
+  <br>
+  🧠 BodhanAI
+  <br>
+</h1>
 
-BodhanAI is a Streamlit chatbot application with a LangGraph-powered backend, Groq-hosted language model responses, streaming chat output, and persistent conversation state stored through SQLite checkpoints.
+<p align="center">
+  <b>A powerful, tool-augmented AI chatbot built with Streamlit + LangGraph + Groq</b>
+  <br/>
+  <i>Real-time web search · Live stock prices · Date/time tools via MCP · Persistent memory</i>
+</p>
 
-The app is designed as a clean personal/workbench chatbot: open it in the browser, start a conversation, create new chats, revisit recent threads, and keep chat history across app reloads.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.8+-blue?style=for-the-badge&logo=python&logoColor=white"/>
+  <img src="https://img.shields.io/badge/Streamlit-UI-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white"/>
+  <img src="https://img.shields.io/badge/LangGraph-Workflow-green?style=for-the-badge"/>
+  <img src="https://img.shields.io/badge/Groq-LLM-orange?style=for-the-badge"/>
+  <img src="https://img.shields.io/badge/SQLite-Persistence-lightgrey?style=for-the-badge&logo=sqlite"/>
+</p>
 
-## Table Of Contents
+---
 
-- [Features](#features)
-- [How It Works](#how-it-works)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Running The App](#running-the-app)
-- [Using BodhanAI](#using-bodhanai)
-- [Data And Persistence](#data-and-persistence)
-- [File Details](#file-details)
-- [Deployment Notes](#deployment-notes)
-- [Customization Guide](#customization-guide)
-- [Troubleshooting](#troubleshooting)
-- [Current Limitations](#current-limitations)
-- [Author](#author)
+## ✨ What is BodhanAI?
 
-## Features
+BodhanAI is a fully-featured AI chatbot that goes far beyond basic Q&A. It runs in your browser, streams responses in real time, remembers your conversations across sessions, and can autonomously call external tools — searching the web, fetching live stock prices, and querying date/time services — all through a clean Streamlit interface.
 
-- Browser-based chatbot interface built with Streamlit.
-- Chatbot name and page title set to `BodhanAI`.
-- Clean top-left brand header rendered with custom CSS.
-- Welcome banner that appears before the first message.
-- Sidebar workbench for chat controls.
-- `New Chat` button for starting a fresh conversation thread.
-- Recent conversation list in the sidebar.
-- Unique thread IDs generated with Python `uuid`.
-- Conversation messages stored in Streamlit session state for immediate UI rendering.
-- User messages displayed with Streamlit chat bubbles.
-- Assistant messages displayed with Streamlit chat bubbles.
-- Prompt input powered by `st.chat_input`.
-- Streaming assistant response display using `st.write_stream`.
-- LangGraph workflow for backend conversation orchestration.
-- Typed chat state using `TypedDict`.
-- Message accumulation with LangGraph's `add_messages` reducer.
-- System prompt that identifies the assistant as BodhanAI.
-- Concise assistant behavior configured through the system message.
-- Groq LLM integration through `langchain-groq`.
-- Current model: `openai/gpt-oss-120b`.
-- Current temperature: `0.7`.
-- Local `.env` configuration support through `python-dotenv`.
-- Streamlit Cloud configuration support through `st.secrets`.
-- Graceful stop with a visible Streamlit error when the API key is missing.
-- SQLite-backed checkpointing through `langgraph-checkpoint-sqlite`.
-- Persistent conversation memory stored in the local `bodhanai` SQLite database file.
-- SQLite write-ahead-log support files are ignored by Git.
-- Automatic retrieval of saved conversation threads at startup.
-- Conversation title generation through the same Groq model.
-- Sidebar titles are generated as short conversation summaries.
-- Title-generation prompt enforces concise, title-case labels.
-- Dev Container configuration for Codespaces or compatible VS Code environments.
-- Port `8501` forwarding configured for Streamlit.
-- Python virtual environment, cache, logs, `.env`, and local database files ignored by Git.
+---
 
-## How It Works
+## 🚀 Features at a Glance
 
-At a high level, BodhanAI has two layers:
+| Category | Capability |
+|---|---|
+| 💬 **Chat** | Streaming responses, multi-turn memory, chat bubbles |
+| 🔍 **Web Search** | Live Tavily-powered search with answer synthesis |
+| 📈 **Stock Prices** | Real-time quotes via Alpha Vantage API |
+| 🕐 **Date & Time** | Remote MCP tool server for date/time queries |
+| 🐙 **GitHub Aware** | Knows your GitHub username, can answer repo questions |
+| 🧵 **Multi-thread** | Multiple parallel conversations, each with its own memory |
+| 📝 **Auto Titles** | LLM-generated conversation titles in the sidebar |
+| 💾 **Persistence** | SQLite-backed checkpoints survive app restarts |
+| ⚡ **Async Core** | Fully async backend with a dedicated event loop thread |
+| 🛠️ **Tool UI** | Live status box shows which tool is running while streaming |
 
-1. `app.py` handles the Streamlit user interface.
-2. `backend.py` builds and exposes the LangGraph workflow.
+---
 
-When a user submits a prompt:
+## 🏗️ Architecture Overview
 
-1. Streamlit captures the text from `st.chat_input`.
-2. The user message is appended to `st.session_state.messages`.
-3. The app streams a response from the LangGraph workflow.
-4. LangGraph sends the conversation to the Groq chat model.
-5. The assistant response streams back into the UI.
-6. The final assistant response is appended to session state.
-7. The app reruns so the latest conversation state is displayed.
-8. LangGraph checkpointing stores thread state in SQLite.
-
-The backend graph is intentionally simple:
-
-```text
-START -> Chat Node -> END
+```
+┌─────────────────────────────────────────────────┐
+│                   app.py (Streamlit UI)          │
+│  Sidebar · Chat bubbles · Streaming · Rerun      │
+└────────────────────┬────────────────────────────┘
+                     │ calls
+┌────────────────────▼────────────────────────────┐
+│               backend.py (LangGraph)             │
+│                                                  │
+│   START ──► chat_node ──► tools_condition        │
+│                  ▲              │                │
+│                  │         ┌────▼────┐           │
+│                  └─────────┤ToolNode │           │
+│                            └─────────┘           │
+│   Tools: TavilySearch · get_stock_price · MCP    │
+└────────────────────┬────────────────────────────┘
+                     │ checkpoints
+┌────────────────────▼────────────────────────────┐
+│            SQLite  (AsyncSqliteSaver)            │
+│    messages  ·  thread IDs  ·  chat_titles       │
+└─────────────────────────────────────────────────┘
 ```
 
-The single chat node adds BodhanAI's system message to the conversation, invokes the configured Groq model, and returns the model response as the next assistant message.
+The graph is simple by design:
 
-## Tech Stack
+- Every user message enters `chat_node`.
+- The LLM decides whether to call a tool or respond directly.
+- If a tool is needed, `ToolNode` executes it and loops back to `chat_node`.
+- The final assistant message streams to the UI.
 
-- **Python**: Main programming language.
-- **Streamlit**: Web app framework and chat UI.
-- **LangGraph**: Conversation workflow/state graph.
-- **LangChain Core**: Message classes and shared LangChain primitives.
-- **LangChain Groq**: Groq model integration.
-- **Groq**: Hosted LLM provider.
-- **SQLite**: Local persistent checkpoint storage.
-- **python-dotenv**: Loads local environment variables from `.env`.
-- **Dev Containers**: Optional Codespaces/VS Code development environment.
+---
 
-## Project Structure
+## 🛠️ Tech Stack
 
-```text
+| Layer | Technology |
+|---|---|
+| Frontend | Streamlit |
+| LLM | Groq — `openai/gpt-oss-120b` |
+| Orchestration | LangGraph (async StateGraph) |
+| Tool: Web Search | LangChain Tavily (`TavilySearch`) |
+| Tool: Stock Prices | Alpha Vantage API via `aiohttp` |
+| Tool: Date & Time | MCP server via `langchain-mcp-adapters` |
+| Persistence | SQLite via `aiosqlite` + `AsyncSqliteSaver` |
+| Env Config | `python-dotenv` + Streamlit Secrets |
+| Dev Env | Dev Containers (Codespaces / VS Code) |
+
+---
+
+## 📁 Project Structure
+
+```
 bodhanai/
-|-- app.py                         # Streamlit frontend application
-|-- backend.py                     # LangGraph workflow and Groq integration
-|-- requirements.txt               # Python package dependencies
-|-- README.md                      # Project documentation
-|-- .env.example                   # Example environment file
-|-- .env                           # Local secrets file, ignored by Git
-|-- .gitignore                     # Ignored files and generated artifacts
-|-- .devcontainer/
-|   `-- devcontainer.json          # Optional dev container configuration
-|-- bodhanai                       # Local SQLite checkpoint database, ignored by Git
-|-- bodhanai-shm                   # SQLite shared-memory file, ignored by Git
-`-- bodhanai-wal                   # SQLite write-ahead-log file, ignored by Git
+├── app.py                     # Streamlit UI — chat, sidebar, streaming
+├── backend.py                 # LangGraph graph, tools, async loop, SQLite
+├── requirements.txt           # Python dependencies
+├── README.md                  # You are here
+├── .env.example               # Template for local secrets
+├── .env                       # Your actual secrets (git-ignored)
+├── .gitignore                 # Ignores venv, cache, .env, SQLite files
+├── .devcontainer/
+│   └── devcontainer.json      # Codespaces / VS Code dev container config
+├── bodhanai                   # SQLite database (git-ignored)
+├── bodhanai-shm               # SQLite shared memory (git-ignored)
+└── bodhanai-wal               # SQLite write-ahead log (git-ignored)
 ```
 
-## Requirements
+---
 
-- Python 3.8 or higher.
-- `pip`.
-- A valid Groq API key.
-- Internet access when installing dependencies.
-- Internet access at runtime so the app can call the Groq API.
+## ⚙️ Installation
 
-The project dependencies are listed in `requirements.txt`:
-
-```text
-streamlit>=1.28.0
-langchain-core>=0.1.0
-langgraph>=0.0.50
-langchain-huggingface>=0.0.1
-python-dotenv>=1.0.0
-langchain-groq>=0.0.1
-langgraph-checkpoint-sqlite
-```
-
-Note: the current application code uses Groq for chat generation. `langchain-huggingface` is listed in the dependency file but is not used by the current `app.py` or `backend.py` implementation.
-
-## Installation
-
-Clone the repository:
+### 1 — Clone the repo
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/HarshRaj4343/bodhanai.git
 cd bodhanai
 ```
 
-Create and activate a virtual environment:
+### 2 — Create a virtual environment
 
 ```bash
+# macOS / Linux
 python3 -m venv venv
 source venv/bin/activate
-```
 
-On Windows:
-
-```bash
+# Windows
 python -m venv venv
 venv\Scripts\activate
 ```
 
-Install dependencies:
+### 3 — Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Configuration
+---
 
-BodhanAI requires a Groq API key named `GROQ_API_KEY`.
+## 🔑 Configuration
 
-For local development, create a `.env` file in the project root:
+BodhanAI needs two API keys. Create a `.env` file in the project root:
 
-```bash
+```env
 GROQ_API_KEY=your_groq_api_key_here
+TAVILY_API_KEY=your_tavily_api_key_here
 ```
 
-The backend loads this key with:
+> **Streamlit Cloud?** Add these as secrets under **App Settings → Secrets** in TOML format:
+> ```toml
+> GROQ_API_KEY = "your_groq_api_key_here"
+> TAVILY_API_KEY = "your_tavily_api_key_here"
+> ```
 
-```python
-os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-```
+If either key is missing, the app shows a clear error and stops safely.
 
-That means the key can come from either:
+---
 
-- A local `.env` file.
-- A shell environment variable.
-- Streamlit Secrets when deployed.
-
-For Streamlit Cloud, add this secret in the app settings:
-
-```toml
-GROQ_API_KEY = "your_groq_api_key_here"
-```
-
-If the key is missing, the app shows:
-
-```text
-API key not found. Please add GROQ_API_KEY to Streamlit Secrets.
-```
-
-and then stops execution with `st.stop()`.
-
-## Running The App
-
-Start the Streamlit server:
+## ▶️ Running the App
 
 ```bash
 streamlit run app.py
 ```
 
-By default, the app opens at:
+Opens at: **http://localhost:8501**
 
-```text
-http://localhost:8501
+---
+
+## 🧩 Tools & Capabilities
+
+### 🔍 Web Search — Tavily
+BodhanAI can search the live web to answer questions about current events, recent news, or anything beyond its training data. Powered by `TavilySearch` with answer synthesis enabled.
+
+### 📈 Stock Price Lookup
+Ask about any stock ticker and BodhanAI fetches the latest price from the Alpha Vantage API using an async HTTP call — no scraping, no delays.
+
+```
+"What is the current price of AAPL?"
+"How is TSLA doing today?"
 ```
 
-## Using BodhanAI
+### 🕐 Date & Time via MCP
+BodhanAI connects to a remote **Model Context Protocol (MCP)** server to answer precise date and time questions. MCP tools are loaded dynamically at startup and bound directly into the LangGraph tool loop.
 
-1. Open the Streamlit app in your browser.
-2. Type a message into the chat input.
-3. Watch the assistant response stream into the page.
-4. Continue the conversation in the same thread.
-5. Use `New Chat` in the sidebar to create a fresh thread.
-6. Use `Recents` in the sidebar to reopen previous conversations.
-
-The initial empty state shows the welcome message:
-
-```text
-Ready to dive in?
+```
+"What day of the week is July 4th 2026?"
+"How many days until Christmas?"
 ```
 
-The chat input placeholder is:
+### 🐙 GitHub Awareness
+The system prompt is pre-loaded with your GitHub username (`HarshRaj4343`). BodhanAI can answer questions about your repositories without you needing to specify the username every time.
 
-```text
-Ask Anything.....
+### 🔧 Live Tool Status
+While a tool is running, a live status box appears in the chat UI:
+```
+🔧 Using `tavily_search_results_json` …
+✅ Tool finished
 ```
 
-## Data And Persistence
+---
 
-BodhanAI uses LangGraph's SQLite checkpointer:
+## 💬 Using BodhanAI
+
+1. Open the app in your browser.
+2. Type any message in the **"Ask Anything....."** input.
+3. Watch the response stream word by word.
+4. Click **New Chat** in the sidebar to start a fresh conversation.
+5. Browse and reopen previous conversations from **Recents** in the sidebar — each one is titled automatically by the LLM.
+
+---
+
+## 💾 Persistence & Memory
+
+Every conversation is stored as a checkpointed LangGraph state in a local SQLite database:
 
 ```python
-conn = sqlite3.connect(database="bodhanai", check_same_thread=False)
-checkpointer = SqliteSaver(conn=conn)
+conn = await aiosqlite.connect("bodhanai")
+saver = AsyncSqliteSaver(conn)
 ```
 
-This creates local SQLite files:
+Conversation titles are stored in a separate `chat_titles` table:
 
-- `bodhanai`
-- `bodhanai-shm`
-- `bodhanai-wal`
-
-These files store checkpointed graph state, including conversation state by thread ID. They are intentionally ignored by Git so private chat history does not get committed.
-
-Thread behavior:
-
-- Every new chat receives a UUID thread ID.
-- The current thread ID is stored in Streamlit session state.
-- The LangGraph config passes the active thread ID through `configurable.thread_id`.
-- Saved threads are loaded through `checkpointer.list(None)`.
-- When a recent thread is selected, its stored messages are loaded back into the chat UI.
-
-## File Details
-
-### `app.py`
-
-`app.py` is the Streamlit frontend. It is responsible for:
-
-- Setting the browser page title.
-- Rendering custom CSS.
-- Displaying the `BodhanAI` brand header.
-- Showing the welcome banner.
-- Managing Streamlit session state.
-- Creating new thread IDs.
-- Resetting chats.
-- Adding threads to the local recents list.
-- Loading saved conversations from the backend workflow state.
-- Rendering previous messages.
-- Capturing user input.
-- Streaming assistant responses.
-- Triggering reruns after each assistant response.
-
-Important UI state keys:
-
-- `messages`: list of rendered chat messages.
-- `thread_id`: active conversation thread ID.
-- `chat_threads`: known conversation threads.
-
-### `backend.py`
-
-`backend.py` is the model and workflow layer. It is responsible for:
-
-- Loading environment variables.
-- Reading `GROQ_API_KEY`.
-- Initializing the Groq chat model.
-- Generating conversation titles.
-- Defining the LangGraph chat state.
-- Creating BodhanAI's system prompt.
-- Invoking the LLM.
-- Connecting to SQLite.
-- Creating the LangGraph checkpoint saver.
-- Building the graph.
-- Compiling the workflow.
-- Retrieving all known threads.
-
-Current LLM configuration:
-
-```python
-llm = ChatGroq(
-    model="openai/gpt-oss-120b",
-    api_key=groq_api_key,
-    temperature=0.7
+```sql
+CREATE TABLE IF NOT EXISTS chat_titles (
+    thread_id TEXT PRIMARY KEY,
+    title TEXT
 )
 ```
 
-Current assistant system message:
+Thread behaviour:
+- Each new chat gets a `uuid4` thread ID.
+- On restart, all previous thread IDs are recovered and shown in the sidebar.
+- Selecting a recent chat reloads its full message history from the checkpoint.
 
-```text
-You are a helpful and concise chatbot. Your name is BodhanAI. Provide direct, clear answers without overthinking or verbose explanations.
+---
+
+## 🔄 Async Architecture
+
+BodhanAI runs a **dedicated background event loop** on a daemon thread so that async LangGraph and tool calls can work seamlessly inside Streamlit's synchronous execution model:
+
+```python
+_ASYNC_LOOP = asyncio.new_event_loop()
+_ASYNC_THREAD = threading.Thread(target=_ASYNC_LOOP.run_forever, daemon=True)
+_ASYNC_THREAD.start()
 ```
 
-### `get_model_title`
+All async functions are submitted via `run_async()` or `submit_async_task()` helpers that bridge sync Streamlit code to the async backend.
 
-`get_model_title` asks the LLM to summarize a conversation into a short title.
+---
 
-The title prompt asks for:
-
-- Only the title.
-- Maximum 6 words.
-- Preferably 2-5 words.
-- Main topic, intent, or problem.
-- No quotation marks.
-- No punctuation.
-- No emojis.
-- No prefixes like `Title:`.
-- Title case.
-- Specific wording instead of generic labels.
-
-### `.gitignore`
-
-The ignore file excludes:
-
-- Virtual environments.
-- Python caches.
-- Build artifacts.
-- Environment files.
-- IDE files.
-- Streamlit config folders.
-- Logs.
-- Local SQLite database files generated by BodhanAI.
-
-### `.devcontainer/devcontainer.json`
-
-The dev container:
-
-- Uses a Python 3.11 Bookworm image.
-- Installs dependencies from `requirements.txt`.
-- Installs Streamlit.
-- Starts the app automatically with `streamlit run app.py`.
-- Forwards port `8501`.
-- Opens the forwarded app preview automatically where supported.
-- Installs the Python and Pylance VS Code extensions.
-
-## Deployment Notes
+## 🚢 Deployment
 
 ### Streamlit Cloud
 
-1. Push the project to a Git repository.
-2. Create a new Streamlit app from the repository.
-3. Set the app entry point to `app.py`.
-4. Add `GROQ_API_KEY` in Streamlit Secrets.
-5. Deploy.
+1. Push your repo to GitHub.
+2. Go to [share.streamlit.io](https://share.streamlit.io) and create a new app.
+3. Set the entry point to `app.py`.
+4. Add `GROQ_API_KEY` and `TAVILY_API_KEY` in **Secrets**.
+5. Deploy. ✅
 
-### Codespaces Or Dev Containers
+### Codespaces / Dev Containers
 
-If opened in an environment that supports Dev Containers, the included config can install requirements and start Streamlit automatically.
+The repo includes `.devcontainer/devcontainer.json` which:
+- Uses a **Python 3.11 Bookworm** image.
+- Auto-installs all `requirements.txt` dependencies.
+- Auto-starts `streamlit run app.py`.
+- Forwards port `8501` and opens a browser preview.
+- Pre-installs the Python + Pylance VS Code extensions.
 
-The app is configured to use port:
+---
 
-```text
-8501
-```
+## 🎛️ Customization
 
-## Customization Guide
+| What to change | Where | How |
+|---|---|---|
+| LLM model | `backend.py` | Edit `model=` in `ChatGroq(...)` |
+| Temperature | `backend.py` | Add `temperature=0.7` to `ChatGroq(...)` |
+| System prompt | `backend.py` → `chat_node` | Edit the `SystemMessage` content |
+| App title | `app.py` | `st.set_page_config(page_title=...)` |
+| Welcome message | `app.py` | Edit the banner markdown |
+| Chat input placeholder | `app.py` | `st.chat_input("...")` |
+| Max search results | `backend.py` | `TavilySearch(max_results=...)` |
+| MCP server URL | `backend.py` → `MultiServerMCPClient` | Swap or add MCP endpoints |
 
-Change the model in `backend.py`:
+---
 
-```python
-model="openai/gpt-oss-120b"
-```
+## 🐛 Troubleshooting
 
-Adjust response creativity in `backend.py`:
+**Missing API key error**
+→ Make sure both `GROQ_API_KEY` and `TAVILY_API_KEY` exist in `.env` or Streamlit Secrets.
 
-```python
-temperature=0.7
-```
+**MCP tools not loading**
+→ Check internet access; the MCP server is a remote HTTP endpoint. The app falls back gracefully if it fails.
 
-Change the assistant behavior by editing the `SystemMessage` in `chat_node`.
+**Dependencies missing**
+→ Run `pip install -r requirements.txt` with your virtual environment activated.
 
-Change the browser page title in `app.py`:
+**Old chat history showing up**
+→ Delete the local SQLite files (`bodhanai`, `bodhanai-shm`, `bodhanai-wal`) to start fresh.
 
-```python
-st.set_page_config(page_title="BodhanAI")
-```
+**App doesn't open automatically**
+→ Navigate to `http://localhost:8501` manually.
 
-Change the visible brand text in `app.py`:
+---
 
-```python
-st.markdown('<div class="company-name">BodhanAI</div>', unsafe_allow_html=True)
-```
+## 🚧 Current Limitations
 
-Change the empty-state welcome message in `app.py`:
+- No user authentication or multi-user support
+- No file or image upload
+- No RAG / vector database integration
+- No UI controls for model or temperature selection
+- No chat export or delete-thread button
+- Local SQLite storage — not suitable for multi-machine or cloud-native deployments as-is
+- No automated test suite
 
-```python
-st.markdown('<div class="banner-name">Ready to dive in?</div>', unsafe_allow_html=True)
-```
+---
 
-Change the chat input placeholder in `app.py`:
+## 👤 Author
 
-```python
-prompt = st.chat_input("Ask Anything.....")
-```
+**Harsh Raj** — IIT Mandi '29
+[GitHub @HarshRaj4343](https://github.com/HarshRaj4343)
 
-Change the SQLite database file name in `backend.py`:
+---
 
-```python
-sqlite3.connect(database="bodhanai", check_same_thread=False)
-```
-
-If the database name changes, update `.gitignore` so generated SQLite files are still ignored.
-
-## Troubleshooting
-
-### Missing API Key
-
-If the app stops with an API key error, make sure `GROQ_API_KEY` exists in one of these places:
-
-- `.env`
-- Your shell environment.
-- Streamlit Secrets.
-
-### Dependencies Not Found
-
-Reinstall dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Make sure your virtual environment is activated before running Streamlit.
-
-### Old Chat History Appears
-
-The local SQLite files store conversation checkpoints. Remove or rename these local files if you want a completely fresh local history:
-
-```text
-bodhanai
-bodhanai-shm
-bodhanai-wal
-```
-
-### Streamlit Does Not Open Automatically
-
-Open the local URL manually:
-
-```text
-http://localhost:8501
-```
-
-### Recents Look Unexpected
-
-The app retrieves saved checkpoint threads from SQLite and displays them in the sidebar. Conversation titles are generated by the LLM from the currently available message history.
-
-## Current Limitations
-
-- No user authentication.
-- No file upload feature.
-- No image input feature.
-- No retrieval-augmented generation pipeline.
-- No vector database.
-- No external tool calling.
-- No admin dashboard.
-- No chat export button.
-- No delete-thread button.
-- No model selector in the UI.
-- No temperature control in the UI.
-- No automated test suite currently included.
-- Local chat history is stored on the machine running the app.
-
-## Author
-
-Harsh
+<p align="center">Built with ❤️ using Streamlit, LangGraph, and Groq</p>
