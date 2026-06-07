@@ -80,11 +80,6 @@ async def get_stock_price(symbol: str) -> dict:
 
 client = MultiServerMCPClient(
     {
-        "arith": {
-            "transport": "stdio",
-            "command": "python3",
-            "args": ["/Users/harshraj/Desktop/MCP_Chatbot_Local_Server/main.py"],
-        },
         "github": {
             "transport": "stdio",
             "command": "npx",
