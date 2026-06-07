@@ -9,3 +9,5 @@ langchain_community
 duckduckgo-search
 ddgs
 langchain-tavily
+aiosqlite
+langchain-mcp-adapters

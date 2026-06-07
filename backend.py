@@ -6,21 +6,32 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from langgraph.graph.message import add_messages
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 import streamlit as st
-import os,requests
+import os
+import aiosqlite
+import aiohttp
+import asyncio
+import threading
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_tavily import TavilySearch
 from langchain_core.tools import tool
-import sqlite3
 
 # ------------------------------------------------CONNECTING .env------------------------------------------------
 
 load_dotenv()
 
+# ------------------------------------------------ASYNC LOOP SETUP------------------------------------------------
+
+_ASYNC_LOOP = asyncio.new_event_loop()
+_ASYNC_THREAD = threading.Thread(target=_ASYNC_LOOP.run_forever, daemon=True)
+_ASYNC_THREAD.start()
+
+def run_async(coro):
+    return asyncio.run_coroutine_threadsafe(coro, _ASYNC_LOOP).result()
+
 # ------------------------------------------------SETTING UP LLM------------------------------------------------
 
-# Get Groq API key from Streamlit Secrets (cloud) or environment variable (local)
 groq_api_key = os.getenv("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
 
 if not groq_api_key:
@@ -40,6 +51,7 @@ search_tool = TavilySearch(
     search_depth="basic",
     include_answer=True,
 )
+
 @tool
 def calculator(first_num: float, second_num: float, operation: str) -> dict:
     """
@@ -66,16 +78,21 @@ def calculator(first_num: float, second_num: float, operation: str) -> dict:
 
 
 @tool
-def get_stock_price(symbol: str) -> dict:
+async def get_stock_price(symbol: str) -> dict:
     """
-    Fetch latest stock price for a given symbol (e.g. 'AAPL', 'TSLA') 
-    using Alpha Vantage with API key in the URL.
+    Fetch latest stock price for a given symbol.
     """
-    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=QPBT1S9TKAAET4CS"
-    r = requests.get(url)
-    return r.json()
+    url = (
+        f"https://www.alphavantage.co/query"
+        f"?function=GLOBAL_QUOTE"
+        f"&symbol={symbol}"
+        f"&apikey=QPBT1S9TKAAET4CS"
+    )
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            return await response.json()
 
-tools = [get_stock_price,search_tool, calculator]
+tools = [get_stock_price, search_tool, calculator]
 
 # ------------------------------------------------Binding the tools------------------------------------------------
 
@@ -83,7 +100,7 @@ llm_with_tools = llm.bind_tools(tools)
 
 # ------------------------------------------------Conversation Title Maker------------------------------------------------
 
-def get_model_title(hist: List):
+async def get_model_title(hist: List):
     prompt = f"""You are an expert conversation summarizer.
 
         Your task is to generate a concise title for a chatbot conversation.
@@ -105,16 +122,15 @@ def get_model_title(hist: List):
         {hist}
         Title:
         """
-    response = llm.invoke(prompt)
+    response = await llm.ainvoke(prompt)
     return response.content
 
 # ------------------------------------------------Setting up the Graph------------------------------------------------
 
-
 class ChatState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
 
-def chat_node(state: ChatState) -> ChatState:
+async def chat_node(state: ChatState) -> ChatState:
     messages = state["messages"]
     
     system_msg = SystemMessage(
@@ -122,88 +138,78 @@ def chat_node(state: ChatState) -> ChatState:
     )
     
     conversation = [system_msg] + messages
-    
-    response = llm_with_tools.invoke(conversation)
-    
+    response = await llm_with_tools.ainvoke(conversation)
     return {'messages': [response]}
 
 tool_node = ToolNode(tools)
+
 # ------------------------------------------------Connecting to SQLite------------------------------------------------
 
-conn = sqlite3.connect(database='bodhanai',check_same_thread=False)
-
-checkpointer = SqliteSaver(conn=conn)
-
-cursor = conn.cursor()
-
-cursor.execute("""
+async def _init_checkpointer():
+    conn = await aiosqlite.connect("bodhanai")
+    saver = AsyncSqliteSaver(conn)
+    await conn.execute("""
         CREATE TABLE IF NOT EXISTS chat_titles (
             thread_id TEXT PRIMARY KEY,
             title TEXT
         )
-""")
+    """)
+    await conn.commit()
+    return conn, saver
 
-conn.commit()
+conn, checkpointer = run_async(_init_checkpointer())
 
 # ------------------------------------------------Making the Graph------------------------------------------------
 
 graph = StateGraph(ChatState)
 graph.add_node("Chat Node", chat_node)
-graph.add_node("tools",tool_node)
+graph.add_node("tools", tool_node)
 graph.add_edge(START, "Chat Node")
 graph.add_conditional_edges("Chat Node", tools_condition)
-graph.add_edge("tools","Chat Node")
+graph.add_edge("tools", "Chat Node")
 
 workflow = graph.compile(checkpointer=checkpointer)
 
 # ------------------------------------------------fetch all unique conversation thread IDs------------------------------------------------
 
-def retrieve_all_threads():
+async def _alist_threads():
     all_threads = set()
-    # Assuming 'checkpointer' is your SQLite checkpointer instance
-    for checkpoint in checkpointer.list(None):
-        thread_id = checkpoint.config["configurable"]["thread_id"]
-        all_threads.add(thread_id)
+    async for checkpoint in checkpointer.alist(None):
+        all_threads.add(checkpoint.config["configurable"]["thread_id"])
     return list(all_threads)
+
+def retrieve_all_threads():
+    return run_async(_alist_threads())
 
 # ------------------------------------------------Chat Title Utility Fxns------------------------------------------------
 
-def save_title(thread_id, title):
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    INSERT OR REPLACE INTO chat_titles
-    (thread_id, title)
-    VALUES (?, ?)
+async def _save_title(thread_id, title):
+    await conn.execute("""
+        INSERT OR REPLACE INTO chat_titles (thread_id, title)
+        VALUES (?, ?)
     """, (str(thread_id), title))
+    await conn.commit()
 
-    conn.commit()
+def save_title(thread_id, title):
+    run_async(_save_title(thread_id, title))
 
+
+async def _get_title(thread_id):
+    async with conn.execute("""
+        SELECT title FROM chat_titles WHERE thread_id = ?
+    """, (str(thread_id),)) as cursor:
+        result = await cursor.fetchone()
+    return result[0] if result else "New Chat"
 
 def get_title(thread_id):
-    cursor = conn.cursor()
+    return run_async(_get_title(thread_id))
 
-    cursor.execute("""
-    SELECT title
-    FROM chat_titles
-    WHERE thread_id = ?
-    """, (str(thread_id),))
 
-    result = cursor.fetchone()
-
-    if result:
-        return result[0]
-
-    return "New Chat"
-
+async def _title_exists(thread_id):
+    async with conn.execute("""
+        SELECT 1 FROM chat_titles WHERE thread_id = ?
+    """, (str(thread_id),)) as cursor:
+        return await cursor.fetchone() is not None
 
 def title_exists(thread_id):
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    SELECT 1
-    FROM chat_titles
-    WHERE thread_id = ?
-    """, (str(thread_id),))
-
-    return cursor.fetchone() is not None
+    return run_async(_title_exists(thread_id))
