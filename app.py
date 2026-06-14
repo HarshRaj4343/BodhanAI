@@ -32,20 +32,47 @@ def add_thread(thread_id):
         st.session_state["chat_threads"].append(thread_id)
 
 def load_conv(thread_id):
-    # AsyncSqliteSaver requires aget_state, not the sync get_state
     state = run_async(workflow.aget_state(config={"configurable": {"thread_id": thread_id}}))
     if state and state.values:
         return state.values.get("messages", [])
     return []
+
+
+def extract_text(content) -> str:
+    """
+    Gemini (langchain-google-genai) returns AIMessage.content as either:
+      - a plain string, or
+      - a list of content blocks: [{'type': 'text', 'text': '...', 'extras': {...}}, ...]
+
+    Streaming chunks follow the same pattern.
+
+    This helper always returns a clean plain-text string so we never
+    accidentally render raw Python reprs (including the 'extras'/'signature'
+    blobs) in the UI.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts)
+    return str(content)
+
 
 def messages_to_display(raw_messages):
     """Convert LangChain messages to simple role/content dicts, skipping ToolMessages."""
     result = []
     for msg in raw_messages:
         if isinstance(msg, HumanMessage):
-            result.append({"role": "user", "content": msg.content})
-        elif isinstance(msg, AIMessage) and msg.content:
-            result.append({"role": "assistant", "content": msg.content})
+            result.append({"role": "user", "content": extract_text(msg.content)})
+        elif isinstance(msg, AIMessage):
+            text = extract_text(msg.content)
+            if text:
+                result.append({"role": "assistant", "content": text})
     return result
 
 # ------------------------------------------------STARTUP------------------------------------------------
@@ -177,8 +204,12 @@ if prompt and not st.session_state["waiting_for_human"]:
                     if isinstance(message_chunk, ToolMessage):
                         tool_name = getattr(message_chunk, "name", "tool")
                         yield ("tool", tool_name)
-                    if isinstance(message_chunk, AIMessage) and message_chunk.content:
-                        yield ("text", message_chunk.content)
+                    if isinstance(message_chunk, AIMessage):
+                        # Fix: always extract plain text — Gemini returns
+                        # content as a list of typed blocks, not a raw string.
+                        text = extract_text(message_chunk.content)
+                        if text:
+                            yield ("text", text)
 
             async_gen = _astream()
             while True:
