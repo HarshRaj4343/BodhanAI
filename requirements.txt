@@ -14,5 +14,6 @@ langchain-mcp-adapters
 aiohttp
 langchain-community
 langchain
+langchain-ollama
 faiss-cpu
 pypdf

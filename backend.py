@@ -3,6 +3,7 @@ from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated, List, Optional, Dict
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 from dotenv import load_dotenv
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -17,7 +18,9 @@ from langchain_tavily import TavilySearch
 from langchain_core.tools import tool, BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from rag_pipeline import doc_loader, doc_splitter, embedder_vs
-
+from langgraph.types import interrupt, Command
+from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+from langchain_google_genai import ChatGoogleGenerativeAI
 # ------------------------------------------------CONNECTING .env------------------------------------------------
 
 load_dotenv()
@@ -52,8 +55,19 @@ tavily_key = os.getenv("TAVILY_API_KEY")
 if not tavily_key:
     raise ValueError("TAVILY_API_KEY not found. Please add it to your .env file.")
 
-llm = ChatGroq(model="openai/gpt-oss-120b")
-
+# llm = ChatGroq(model="llama-3.3-70b-versatile")
+# mo = HuggingFaceEndpoint(
+#     repo_id="Qwen/Qwen3-32B",
+#     huggingfacehub_api_token=os.getenv("HUGGINGFACEHUB_API_TOKEN"),
+#     task="text-generation",
+# )
+# llm = ChatHuggingFace(llm=mo, temperature=0.2)
+# llm = ChatOllama(model="gemma4:e2b")
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    google_api_key=os.getenv("GOOGLE_API_KEY"),
+    temperature=0.2,
+)
 # ------------------------------------------------Setting up Tools------------------------------------------------
 
 search_tool = TavilySearch(
@@ -65,16 +79,22 @@ search_tool = TavilySearch(
 
 @tool
 async def get_stock_price(symbol: str) -> dict:
-    """Fetch latest stock price for a given symbol."""
-    url = (
-        f"https://www.alphavantage.co/query"
-        f"?function=GLOBAL_QUOTE"
-        f"&symbol={symbol}"
-        f"&apikey=QPBT1S9TKAAET4CS"
-    )
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            return await response.json()
+    """Fetch latest stock price for a given symbol.
+        HITL : Confirm user for using this tool and the symbol before calling the API. If user has not confirmed, return a message asking for confirmation.
+    """
+    decision = interrupt(f"Are you sure you want to fetch the stock price for {symbol}? Please answer with a clear yes or no.")
+    if decision.lower() not in ["yes", "y"]:
+        return {"error": "Operation cancelled by user."}
+    else:
+        url = (
+            f"https://www.alphavantage.co/query"
+            f"?function=GLOBAL_QUOTE"
+            f"&symbol={symbol}"
+            f"&apikey=QPBT1S9TKAAET4CS"
+        )
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                return await response.json()
 
 
 @tool
@@ -145,10 +165,8 @@ client = MultiServerMCPClient(
 def load_mcp_tools() -> list[BaseTool]:
     try:
         tools = run_async(client.get_tools())
-        print(f"MCP loading succeeded: {[t.name for t in tools]}")
         return tools
     except Exception as e:
-        print(f"MCP loading failed: {e}")
         return []
 
 mcp_tools = load_mcp_tools()
@@ -241,6 +259,10 @@ else:
     graph.add_edge("chat_node", END)
 
 workflow = graph.compile(checkpointer=checkpointer)
+
+with open("langgraph.png", "wb") as f:
+    f.write(workflow.get_graph().draw_mermaid_png())
+
 
 # ------------------------------------------------fetch all unique conversation thread IDs------------------------------------------------
 
