@@ -1,8 +1,6 @@
 # ------------------------------------------------IMPORTS------------------------------------------------
 
-from pdb import run
 import asyncio
-import aiohttp
 import streamlit as st
 from backend import (
     workflow, get_model_title, retrieve_all_threads,
@@ -12,7 +10,9 @@ from backend import (
 import uuid
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langgraph.types import Command
+
 # ------------------------------------------------Set Page Title------------------------------------------------
+
 st.set_page_config(page_title="BodhanAI")
 
 # ------------------------------------------------UTILITY Fxns------------------------------------------------
@@ -32,10 +32,21 @@ def add_thread(thread_id):
         st.session_state["chat_threads"].append(thread_id)
 
 def load_conv(thread_id):
-    state = workflow.get_state(config={"configurable": {"thread_id": thread_id}})
+    # AsyncSqliteSaver requires aget_state, not the sync get_state
+    state = run_async(workflow.aget_state(config={"configurable": {"thread_id": thread_id}}))
     if state and state.values:
         return state.values.get("messages", [])
     return []
+
+def messages_to_display(raw_messages):
+    """Convert LangChain messages to simple role/content dicts, skipping ToolMessages."""
+    result = []
+    for msg in raw_messages:
+        if isinstance(msg, HumanMessage):
+            result.append({"role": "user", "content": msg.content})
+        elif isinstance(msg, AIMessage) and msg.content:
+            result.append({"role": "assistant", "content": msg.content})
+    return result
 
 # ------------------------------------------------STARTUP------------------------------------------------
 
@@ -51,6 +62,7 @@ if "pending_interrupt" not in st.session_state:
     st.session_state["pending_interrupt"] = None
 if "waiting_for_human" not in st.session_state:
     st.session_state["waiting_for_human"] = False
+
 add_thread(st.session_state["thread_id"])
 
 # ------------------------------------------------RECOMPUTE EVERY RERUN------------------------------------------------
@@ -97,30 +109,11 @@ if uploaded_pdf:
             status_box.update(label="✅ PDF indexed", state="complete", expanded=False)
 
 st.sidebar.subheader("Recents")
-
 for thread_id in reversed(st.session_state["chat_threads"]):
     title = get_title(thread_id)
     if st.sidebar.button(title, key=f"thread-{thread_id}"):
         st.session_state["thread_id"] = thread_id
-        response = load_conv(thread_id=thread_id)
-        temp_messages = []
-        for msg in response:
-            if isinstance(msg, HumanMessage):
-                role = "user"
-
-            elif isinstance(msg, ToolMessage):
-                continue
-
-            else:
-                role = "assistant"
-
-            temp_messages.append(
-                {
-                    "role": role,
-                    "content": msg.content
-                }
-            )
-        st.session_state["messages"] = temp_messages
+        st.session_state["messages"] = messages_to_display(load_conv(thread_id))
         st.session_state["ingested_docs"].setdefault(str(thread_id), {})
         st.rerun()
 
@@ -130,6 +123,35 @@ for message in st.session_state["messages"]:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+# ------------------------------------------------HITL Confirmation UI------------------------------------------------
+
+if st.session_state["waiting_for_human"]:
+    interrupt_obj = st.session_state["pending_interrupt"]
+    st.warning(interrupt_obj.value)
+
+    def _resume_and_reload(decision: str):
+        run_async(
+            workflow.ainvoke(
+                Command(resume=decision),
+                config=CONFIG,
+            )
+        )
+        st.session_state["pending_interrupt"] = None
+        st.session_state["waiting_for_human"] = False
+        st.session_state["messages"] = messages_to_display(
+            load_conv(st.session_state["thread_id"])
+        )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Yes"):
+            _resume_and_reload("yes")
+            st.rerun()
+    with col2:
+        if st.button("❌ No"):
+            _resume_and_reload("no")
+            st.rerun()
+
 # ------------------------------------------------Chat Input + Streaming------------------------------------------------
 
 prompt = st.chat_input(
@@ -137,87 +159,7 @@ prompt = st.chat_input(
     disabled=st.session_state["waiting_for_human"]
 )
 
-if st.session_state["waiting_for_human"]:
-    interrupt_obj = st.session_state["pending_interrupt"]
-
-    st.warning(interrupt_obj.value)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("✅ Yes"):
-            run_async(
-                workflow.ainvoke(
-                    Command(resume="yes"),
-                    config=CONFIG,
-                )
-            )
-
-            st.session_state["pending_interrupt"] = None
-            st.session_state["waiting_for_human"] = False
-
-            response = load_conv(st.session_state["thread_id"])
-
-            temp_messages = []
-
-            for msg in response:
-
-                if isinstance(msg, HumanMessage):
-                    role = "user"
-
-                elif isinstance(msg, ToolMessage):
-                    continue
-
-                else:
-                    role = "assistant"
-
-                temp_messages.append(
-                    {
-                        "role": role,
-                        "content": msg.content
-                    }
-                )
-
-            st.session_state["messages"] = temp_messages
-            st.rerun()
-
-    with col2:
-        if st.button("❌ No"):
-            run_async(
-                workflow.ainvoke(
-                    Command(resume="no"),
-                    config=CONFIG,
-                )
-            )
-
-            st.session_state["pending_interrupt"] = None
-            st.session_state["waiting_for_human"] = False
-
-            response = load_conv(st.session_state["thread_id"])
-
-            temp_messages = []
-
-            for msg in response:
-
-                if isinstance(msg, HumanMessage):
-                    role = "user"
-
-                elif isinstance(msg, ToolMessage):
-                    continue
-
-                else:
-                    role = "assistant"
-
-                temp_messages.append(
-                    {
-                        "role": role,
-                        "content": msg.content
-                    }
-                )
-            st.session_state["messages"] = temp_messages
-            st.rerun()
-
-elif prompt:
+if prompt and not st.session_state["waiting_for_human"]:
     with st.chat_message("user"):
         st.markdown(prompt)
     st.session_state["messages"].append({"role": "user", "content": prompt})
@@ -256,12 +198,15 @@ elif prompt:
 
         if status_holder["box"] is not None:
             status_holder["box"].update(label="✅ Tool finished", state="complete", expanded=True)
-        state = workflow.get_state(CONFIG)
-        if state.interrupts:
-            st.session_state["pending_interrupt"] = state.interrupts[0]
-            st.session_state["waiting_for_human"] = True
 
-    st.session_state["messages"].append({"role": "assistant", "content": ai_msg})
+    # Check if graph paused at a HITL interrupt
+    state = run_async(workflow.aget_state(CONFIG))
+    if state.interrupts:
+        st.session_state["pending_interrupt"] = state.interrupts[0]
+        st.session_state["waiting_for_human"] = True
+
+    if ai_msg:
+        st.session_state["messages"].append({"role": "assistant", "content": ai_msg})
 
     doc_meta = thread_document_metadata(thread_key)
     if doc_meta:

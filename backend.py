@@ -1,9 +1,7 @@
 # ------------------------------------------------IMPORTS------------------------------------------------
 from langgraph.graph import StateGraph, START, END
-from typing import TypedDict, Annotated, List, Optional, Dict
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from langchain_groq import ChatGroq
-from langchain_ollama import ChatOllama
+from typing import TypedDict, Annotated, List, Dict
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 from dotenv import load_dotenv
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -13,14 +11,14 @@ import aiohttp
 import asyncio
 import threading
 import tempfile
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import ToolNode
 from langchain_tavily import TavilySearch
 from langchain_core.tools import tool, BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from rag_pipeline import doc_loader, doc_splitter, embedder_vs
 from langgraph.types import interrupt, Command
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_google_genai import ChatGoogleGenerativeAI
+
 # ------------------------------------------------CONNECTING .env------------------------------------------------
 
 load_dotenv()
@@ -55,19 +53,12 @@ tavily_key = os.getenv("TAVILY_API_KEY")
 if not tavily_key:
     raise ValueError("TAVILY_API_KEY not found. Please add it to your .env file.")
 
-# llm = ChatGroq(model="llama-3.3-70b-versatile")
-# mo = HuggingFaceEndpoint(
-#     repo_id="Qwen/Qwen3-32B",
-#     huggingfacehub_api_token=os.getenv("HUGGINGFACEHUB_API_TOKEN"),
-#     task="text-generation",
-# )
-# llm = ChatHuggingFace(llm=mo, temperature=0.2)
-# llm = ChatOllama(model="gemma4:e2b")
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=os.getenv("GOOGLE_API_KEY"),
     temperature=0.2,
 )
+
 # ------------------------------------------------Setting up Tools------------------------------------------------
 
 search_tool = TavilySearch(
@@ -79,22 +70,16 @@ search_tool = TavilySearch(
 
 @tool
 async def get_stock_price(symbol: str) -> dict:
-    """Fetch latest stock price for a given symbol.
-        HITL : Confirm user for using this tool and the symbol before calling the API. If user has not confirmed, return a message asking for confirmation.
-    """
-    decision = interrupt(f"Are you sure you want to fetch the stock price for {symbol}? Please answer with a clear yes or no.")
-    if decision.lower() not in ["yes", "y"]:
-        return {"error": "Operation cancelled by user."}
-    else:
-        url = (
-            f"https://www.alphavantage.co/query"
-            f"?function=GLOBAL_QUOTE"
-            f"&symbol={symbol}"
-            f"&apikey=QPBT1S9TKAAET4CS"
-        )
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                return await response.json()
+    """Fetch latest stock price for a given symbol from Alpha Vantage."""
+    url = (
+        f"https://www.alphavantage.co/query"
+        f"?function=GLOBAL_QUOTE"
+        f"&symbol={symbol}"
+        f"&apikey=QPBT1S9TKAAET4CS"
+    )
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            return await response.json()
 
 
 @tool
@@ -180,26 +165,23 @@ llm_with_tools = llm.bind_tools(tools) if tools else llm
 
 async def get_model_title(hist: List):
     prompt = f"""You are an expert conversation summarizer.
+Your task is to generate a concise title for a chatbot conversation.
+Rules:
+- Return ONLY the title.
+- Maximum 6 words.
+- Prefer 2 to 5 words when possible.
+- Capture the main topic, intent, or problem discussed.
+- Do not use quotation marks, punctuation, emojis, or prefixes like "Title:".
+- Use title case.
+- Be specific rather than generic.
+- Do not explain your reasoning.
+- Make the title feel user-facing.
 
-        Your task is to generate a concise title for a chatbot conversation.
+Conversation:
+{hist}
 
-        Rules:
-        - Return ONLY the title.
-        - Maximum 6 words.
-        - Prefer 2 to 5 words when possible.
-        - Capture the main topic, intent, or problem discussed.
-        - Do not use quotation marks, punctuation, emojis, or prefixes like "Title:".
-        - Use title case.
-        - Be specific rather than generic.
-        - If the conversation is about debugging, mention the technology and issue.
-        - If multiple topics exist, focus on the primary one.
-        - Do not explain your reasoning.
-        - the main thing is that this title is to be seen by user, so make it seem like it is for a user: like first person view
-
-        Conversation:
-        {hist}
-        Title:
-        """
+Title:
+"""
     response = await llm.ainvoke(prompt)
     return response.content
 
@@ -207,6 +189,50 @@ async def get_model_title(hist: List):
 
 class ChatState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
+
+# ------------------------------------------------HITL Node (runs BEFORE tools, interrupts for stock price)------------------------------------------------
+
+async def hitl_node(state: ChatState, config=None) -> Command:
+    """
+    Inserted between chat_node and tools.
+    Interrupts only when the LLM wants to call get_stock_price.
+    On resume: 'yes' -> proceed to tools, 'no' -> inject cancellation ToolMessages and go back to chat_node.
+    """
+    messages = state["messages"]
+    last_ai = next(
+        (m for m in reversed(messages) if isinstance(m, AIMessage)),
+        None
+    )
+
+    if last_ai is None or not getattr(last_ai, "tool_calls", None):
+        return Command(goto="tools")
+
+    stock_calls = [
+        tc for tc in last_ai.tool_calls
+        if tc["name"] == "get_stock_price"
+    ]
+
+    if not stock_calls:
+        return Command(goto="tools")
+
+    symbol = stock_calls[0]["args"].get("symbol", "the requested symbol")
+    decision = interrupt(
+        f"Are you sure you want to fetch the stock price for {symbol}? Please answer yes or no."
+    )
+
+    if decision.lower() not in ["yes", "y"]:
+        cancel_messages = [
+            ToolMessage(
+                content="Operation cancelled by user.",
+                tool_call_id=tc["id"],
+                name=tc["name"],
+            )
+            for tc in last_ai.tool_calls
+            if tc["name"] == "get_stock_price"
+        ]
+        return Command(goto="chat_node", update={"messages": cancel_messages})
+
+    return Command(goto="tools")
 
 
 async def chat_node(state: ChatState, config=None) -> ChatState:
@@ -217,9 +243,13 @@ async def chat_node(state: ChatState, config=None) -> ChatState:
 
     system_msg = SystemMessage(
         content=f"""You are a helpful and concise chatbot. Your name is BodhanAI. Provide direct, clear answers without overthinking or verbose explanations. Never use LaTeX formatting (like \\[ or \\boxed) for math equations. Always use plain text and standard symbols (like * for multiplication).
-            The user's GitHub username is: HarshRaj4343
-            Always use this username when fetching GitHub data unless the user specifies otherwise.
-            If the user asks questions about an uploaded PDF, call the rag_tool with thread_id=`{thread_id}`."""
+
+The user's GitHub username is: HarshRaj4343
+Always use this username when fetching GitHub data unless the user specifies otherwise.
+
+If the user asks questions about an uploaded PDF, call the rag_tool with thread_id=`{thread_id}`.
+
+When you want to fetch a stock price, call get_stock_price — the system will automatically ask the user for confirmation before the API call is made."""
     )
 
     conversation = [system_msg] + messages
@@ -247,22 +277,42 @@ conn, checkpointer = run_async(_init_checkpointer())
 
 # ------------------------------------------------Making the Graph------------------------------------------------
 
+def route_after_chat(state: ChatState):
+    """After chat_node: if AI made tool calls go to hitl_node, else END."""
+    last_ai = next(
+        (m for m in reversed(state["messages"]) if isinstance(m, AIMessage)),
+        None
+    )
+    if last_ai and getattr(last_ai, "tool_calls", None):
+        return "hitl_node"
+    return END
+
+
 graph = StateGraph(ChatState)
 graph.add_node("chat_node", chat_node)
+graph.add_node("hitl_node", hitl_node)
 graph.add_edge(START, "chat_node")
 
 if tool_node:
     graph.add_node("tools", tool_node)
-    graph.add_conditional_edges("chat_node", tools_condition)
+    graph.add_conditional_edges(
+        "chat_node",
+        route_after_chat,
+        {"hitl_node": "hitl_node", END: END}
+    )
+    # hitl_node uses Command(goto=...) to dynamically route at runtime
+    graph.add_edge("hitl_node", "tools")
     graph.add_edge("tools", "chat_node")
 else:
     graph.add_edge("chat_node", END)
 
 workflow = graph.compile(checkpointer=checkpointer)
 
-with open("langgraph.png", "wb") as f:
-    f.write(workflow.get_graph().draw_mermaid_png())
-
+try:
+    with open("langgraph.png", "wb") as f:
+        f.write(workflow.get_graph().draw_mermaid_png())
+except Exception:
+    pass
 
 # ------------------------------------------------fetch all unique conversation thread IDs------------------------------------------------
 
