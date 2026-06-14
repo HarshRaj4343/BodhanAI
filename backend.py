@@ -2,6 +2,7 @@
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated, List, Dict
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from dotenv import load_dotenv
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -83,24 +84,44 @@ async def get_stock_price(symbol: str) -> dict:
 
 
 @tool
-def rag_tool(query: str, thread_id: str = None) -> dict:
+def rag_tool(query: str, config: RunnableConfig) -> str:
     """
-    Retrieve relevant information from the uploaded PDF for this chat thread.
-    Always include the thread_id when calling this tool.
+    Retrieve relevant information from the uploaded PDF document for this conversation.
+    Use this whenever the user asks about content from an uploaded PDF or resume.
+    The thread_id is automatically injected from the graph config — do NOT pass it manually.
     """
+    # Bug fix 1: Read thread_id from LangGraph's RunnableConfig instead of
+    # relying on the LLM to pass it as an argument (which it does unreliably).
+    thread_id = config.get("configurable", {}).get("thread_id") if config else None
+
     retriever = _THREAD_RETRIEVERS.get(str(thread_id)) if thread_id else None
     if retriever is None:
-        return {
-            "error": "No document indexed for this chat. Upload a PDF first.",
-            "query": query,
-        }
-    result = retriever.invoke(query)
-    return {
-        "query": query,
-        "context": [doc.page_content for doc in result],
-        "metadata": [doc.metadata for doc in result],
-        "source_file": _THREAD_METADATA.get(str(thread_id), {}).get("filename"),
-    }
+        return (
+            "No document has been indexed for this conversation. "
+            "Please upload a PDF using the sidebar first, then ask your question again."
+        )
+
+    docs = retriever.invoke(query)
+    if not docs:
+        return "The document was searched but no relevant content was found for your query."
+
+    # Bug fix 2: Return clean plain text instead of a raw dict.
+    # Returning a dict causes LangGraph's ToolNode to serialise it as a Python
+    # repr string (including internal 'extras'/'signature' blobs from the
+    # Google GenAI SDK), which the LLM then echoes verbatim instead of
+    # synthesising an answer.
+    source_file = _THREAD_METADATA.get(str(thread_id), {}).get("filename", "uploaded document")
+    context_blocks = []
+    for i, doc in enumerate(docs, 1):
+        page = doc.metadata.get("page", "?")
+        context_blocks.append(f"[Chunk {i} | Page {page}]\n{doc.page_content.strip()}")
+
+    context_text = "\n\n".join(context_blocks)
+    return (
+        f"Relevant excerpts from '{source_file}':\n\n"
+        f"{context_text}\n\n"
+        f"Use only the above excerpts to answer the user's question."
+    )
 
 # ------------------------------------------------PDF Ingestion------------------------------------------------
 
@@ -241,13 +262,16 @@ async def chat_node(state: ChatState, config=None) -> ChatState:
     if config and isinstance(config, dict):
         thread_id = config.get("configurable", {}).get("thread_id")
 
+    # Bug fix 3: Removed the instruction telling the LLM to manually pass
+    # thread_id — it is now injected automatically via RunnableConfig, so
+    # the LLM no longer needs to know about it or include it in tool calls.
     system_msg = SystemMessage(
         content=f"""You are a helpful and concise chatbot. Your name is BodhanAI. Provide direct, clear answers without overthinking or verbose explanations. Never use LaTeX formatting (like \\[ or \\boxed) for math equations. Always use plain text and standard symbols (like * for multiplication).
 
 The user's GitHub username is: HarshRaj4343
 Always use this username when fetching GitHub data unless the user specifies otherwise.
 
-If the user asks questions about an uploaded PDF, call the rag_tool with thread_id=`{thread_id}`.
+If the user asks questions about an uploaded PDF or resume, call the `rag_tool` with only the `query` argument — do NOT pass thread_id, it is handled automatically.
 
 When you want to fetch a stock price, call get_stock_price — the system will automatically ask the user for confirmation before the API call is made."""
     )
