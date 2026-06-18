@@ -1,15 +1,18 @@
 # ------------------------------------------------IMPORTS------------------------------------------------
+import os
 
+from streamlit_mic_recorder import mic_recorder
 import asyncio
 import streamlit as st
 from backend import (
     workflow, get_model_title, retrieve_all_threads,
     save_title, get_title, title_exists, run_async,
-    ingest_pdf, thread_document_metadata,
+    ingest_pdf, thread_document_metadata,transcribe_audio
 )
 import uuid
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langgraph.types import Command
+
 
 # ------------------------------------------------Set Page Title------------------------------------------------
 
@@ -91,6 +94,9 @@ if "waiting_for_human" not in st.session_state:
     st.session_state["waiting_for_human"] = False
 
 add_thread(st.session_state["thread_id"])
+# ------------------------------------------------LOAD SPEECH MODELS------------------------------------------------
+
+
 
 # ------------------------------------------------RECOMPUTE EVERY RERUN------------------------------------------------
 
@@ -178,18 +184,26 @@ if st.session_state["waiting_for_human"]:
         if st.button("❌ No"):
             _resume_and_reload("no")
             st.rerun()
-
+# ------------------------------------------------Audio Inputs------------------------------------------------
+audio_value = st.audio_input("🎙️ Speak your message")
+voice_prompt = None
+if audio_value is not None:
+    with st.spinner("Transcribing..."):
+        voice_prompt = transcribe_audio(audio_value.getvalue(), file_extension="wav")
+    st.info(f"Transcribed: *{voice_prompt}*")
 # ------------------------------------------------Chat Input + Streaming------------------------------------------------
 
 prompt = st.chat_input(
     "Ask Anything.....",
     disabled=st.session_state["waiting_for_human"]
 )
+effective_prompt = voice_prompt or prompt
 
-if prompt and not st.session_state["waiting_for_human"]:
+
+if effective_prompt and not st.session_state["waiting_for_human"]:
     with st.chat_message("user"):
-        st.markdown(prompt)
-    st.session_state["messages"].append({"role": "user", "content": prompt})
+        st.markdown(effective_prompt)
+    st.session_state["messages"].append({"role": "user", "content": effective_prompt})
 
     with st.chat_message("assistant"):
         status_holder = {"box": None}
@@ -197,7 +211,7 @@ if prompt and not st.session_state["waiting_for_human"]:
         def ai_only_stream():
             async def _astream():
                 async for message_chunk, metadata in workflow.astream(
-                    {"messages": [HumanMessage(content=prompt)]},
+                    {"messages": [HumanMessage(content=effective_prompt)]},
                     config=CONFIG,
                     stream_mode="messages",
                 ):

@@ -1,5 +1,6 @@
 # ------------------------------------------------IMPORTS------------------------------------------------
 from langchain_groq import ChatGroq
+from groq import Groq 
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated, List, Dict
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
@@ -40,6 +41,20 @@ def run_async(coro):
 def submit_async_task(coro):
     return _submit_async(coro)
 
+def transcribe_audio(audio_bytes: bytes, file_extension: str = "wav") -> str:
+    client = Groq(api_key=os.getenv("GROQ_SPEECH_API_KEY"))
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as f:
+        f.write(audio_bytes)
+        temp_path = f.name
+    try:
+        with open(temp_path, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                file=(f"audio.{file_extension}", audio_file.read()),
+                model="whisper-large-v3",
+            )
+        return transcription.text.strip()
+    finally:
+        os.remove(temp_path)
 # ------------------------------------------------THREAD-AWARE RAG STORAGE------------------------------------------------
 
 _THREAD_RETRIEVERS: Dict[str, any] = {}
