@@ -1,4 +1,5 @@
 # ------------------------------------------------IMPORTS------------------------------------------------
+from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated, List, Dict
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
@@ -54,10 +55,8 @@ tavily_key = os.getenv("TAVILY_API_KEY")
 if not tavily_key:
     raise ValueError("TAVILY_API_KEY not found. Please add it to your .env file.")
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    google_api_key=os.getenv("GOOGLE_API_KEY"),
-    temperature=0.2,
+llm = ChatGroq(
+    model = "openai/gpt-oss-120b"
 )
 
 # ------------------------------------------------Setting up Tools------------------------------------------------
