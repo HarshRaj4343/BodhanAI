@@ -183,18 +183,9 @@ if st.session_state["waiting_for_human"]:
             _resume_and_reload("no")
             st.rerun()
 
-# ------------------------------------------------Chat Input + Audio Input (side by side)------------------------------------------------
+# ------------------------------------------------Audio Input------------------------------------------------
 
-col_chat, col_mic = st.columns([0.88, 0.12])
-
-with col_chat:
-    prompt = st.chat_input(
-        "Ask Anything.....",
-        disabled=st.session_state["waiting_for_human"]
-    )
-
-with col_mic:
-    audio_value = st.audio_input(" ", label_visibility="collapsed")
+audio_value = st.audio_input("🎙️ Speak your message")
 
 # ------------------------------------------------Voice Transcription (loop-safe)------------------------------------------------
 
@@ -207,7 +198,12 @@ if audio_value is not None:
         st.session_state["last_audio_id"] = audio_id
         st.info(f"Transcribed: *{voice_prompt}*")
 
-# ------------------------------------------------Merge Inputs------------------------------------------------
+# ------------------------------------------------Chat Input + Streaming------------------------------------------------
+
+prompt = st.chat_input(
+    "Ask Anything.....",
+    disabled=st.session_state["waiting_for_human"]
+)
 
 effective_prompt = voice_prompt or prompt
 
