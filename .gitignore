@@ -48,3 +48,10 @@ wheels/
 bodhanai
 bodhanai-shm
 bodhanai-wal
+
+venv/
+venv311/
+__pycache__/
+.env
+*.db-wal
+*.db-shm

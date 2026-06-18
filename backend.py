@@ -262,12 +262,11 @@ async def chat_node(state: ChatState, config=None) -> ChatState:
     if config and isinstance(config, dict):
         thread_id = config.get("configurable", {}).get("thread_id")
 
-    # Bug fix 3: Removed the instruction telling the LLM to manually pass
-    # thread_id — it is now injected automatically via RunnableConfig, so
-    # the LLM no longer needs to know about it or include it in tool calls.
     system_msg = SystemMessage(
         content=f"""You are a helpful and concise chatbot. Your name is BodhanAI. Provide direct, clear answers without overthinking or verbose explanations. Never use LaTeX formatting (like \\[ or \\boxed) for math equations. Always use plain text and standard symbols (like * for multiplication).
-
+When asked to rate, score, or rank something (a resume, document, code, etc.),
+always provide a specific numerical score out of 10 with brief justification.
+Never refuse to give a number — the user has explicitly requested it.
 The user's GitHub username is: HarshRaj4343
 Always use this username when fetching GitHub data unless the user specifies otherwise.
 
