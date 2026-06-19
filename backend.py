@@ -75,13 +75,12 @@ llm = ChatGroq(
 )
 
 # ------------------------------------------------Setting up Tools------------------------------------------------
-
 search_tool = TavilySearch(
-    max_results=3,
+    max_results=2,
     search_depth="basic",
-    include_answer=True,
+    include_answer=False,
+    include_raw_content=False,
 )
-
 
 @tool
 async def get_stock_price(symbol: str) -> dict:
