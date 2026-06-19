@@ -1,0 +1,21 @@
+[server]
+# Streamlit's default XSRF protection validates the Origin/Referer header
+# of upload requests (used by st.audio_input AND st.file_uploader) against
+# the server's own address. Behind Railway's reverse proxy that header
+# doesn't match, so every upload request to /_stcore/upload_file/ gets
+# rejected with a 403 - which is what shows up in the UI as
+# "An error has occurred, please try again." on the mic widget.
+# Disabling it here is the standard fix for Streamlit apps deployed
+# behind any reverse proxy (Railway, Render, HF Spaces, EC2, etc).
+enableCORS = false
+enableXsrfProtection = false
+
+# Default is 200MB for both, but setting explicitly so a recorded WAV
+# clip or an uploaded PDF never gets silently rejected for size either.
+maxUploadSize = 200
+maxMessageSize = 200
+
+# Some proxies (Railway included) strip the Sec-WebSocket-Extensions
+# header used to negotiate websocket compression, which can cause
+# random "Connection error" disconnects during streaming responses.
+enableWebsocketCompression = false
