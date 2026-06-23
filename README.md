@@ -38,7 +38,7 @@ BodhanAI is a fully-featured AI chatbot that goes far beyond basic Q&A. It runs 
 | 🛑 **Human-in-the-Loop** | LangGraph `interrupt`/`Command(resume=...)` pauses the graph to ask "yes/no" before risky tool calls |
 | 🎙️ **Voice Input** | Record a question via the browser mic; transcribed with Groq Whisper (`whisper-large-v3`) |
 | 🕐 **Date & Time** | Remote MCP tool server for date/time queries |
-| 🐙 **GitHub Aware** | Knows your GitHub username, can answer repo questions |
+| 🐙 **GitHub Aware** | Pre-loaded with your GitHub username for repo-related questions |
 | 🧵 **Multi-thread** | Multiple parallel conversations, each with its own memory and its own indexed PDF |
 | 📝 **Auto Titles** | LLM-generated conversation titles in the sidebar |
 | 💾 **Persistence** | SQLite-backed checkpoints survive app restarts |
@@ -53,25 +53,25 @@ BodhanAI is a fully-featured AI chatbot that goes far beyond basic Q&A. It runs 
 ┌──────────────────────────────────────────────────────────┐
 │                    app.py (Streamlit UI)                  │
 │  Sidebar · PDF upload · Mic input · Chat bubbles · Stream │
-└────────────────────────────┬───────────────────────────────┘
+└────────────────────────────┬─────────────────────────────┘
                              │ calls
-┌────────────────────────────▼───────────────────────────────┐
-│                  backend.py (LangGraph)                    │
-│                                                              │
-│   START ──► chat_node ──► route_after_chat                 │
-│                 ▲              │                            │
-│                 │       (tool call requested)               │
-│                 │              ▼                            │
-│                 │         hitl_node ──interrupt()──► user   │
-│                 │              │ Command(goto=...)          │
-│                 │              ▼                            │
-│                 └─────────  ToolNode  ◄──────────────────   │
-│   Tools: TavilySearch · get_stock_price · rag_tool · MCP   │
-└────────────────────────────┬───────────────────────────────┘
+┌────────────────────────────▼─────────────────────────────┐
+│                  backend.py (LangGraph)                   │
+│                                                           │
+│   START ──► chat_node ──► route_after_chat                │
+│                 ▲              │                          │
+│                 │       (tool call requested)             │
+│                 │              ▼                          │
+│                 │         hitl_node ──interrupt()──► user │
+│                 │              │ Command(goto=...)        │
+│                 │              ▼                          │
+│                 └─────────  ToolNode  ◄────────────────── │
+│   Tools: TavilySearch · get_stock_price · rag_tool · MCP  │
+└────────────────────────────┬─────────────────────────────┘
                              │ checkpoints
-┌────────────────────────────▼───────────────────────────────┐
-│             SQLite  (AsyncSqliteSaver)                     │
-│       messages  ·  thread IDs  ·  chat_titles               │
+┌────────────────────────────▼─────────────────────────────┐
+│             SQLite  (AsyncSqliteSaver)                    │
+│       messages  ·  thread IDs  ·  chat_titles            │
 └──────────────────────────────────────────────────────────┘
 
                   Side path: PDF upload
@@ -79,12 +79,11 @@ BodhanAI is a fully-featured AI chatbot that goes far beyond basic Q&A. It runs 
                          (per-thread retriever, in-memory)
 ```
 
-The graph is intentionally simple:
+**Graph flow:**
 
-- Every user message enters `chat_node`.
-- The LLM decides whether to call a tool or respond directly (`route_after_chat`).
-- If a tool call was requested, control passes through `hitl_node` first. For `get_stock_price` calls specifically, `hitl_node` calls `interrupt()` and pauses the whole graph until the UI sends back a `Command(resume="yes"/"no")`. Every other tool call skips straight through.
-- `ToolNode` then executes the approved tool(s) and loops back to `chat_node`.
+- Every user message enters `chat_node`, where the LLM (running via Groq) decides whether to call a tool or reply directly (`route_after_chat`).
+- If a tool call was requested, control passes through `hitl_node` first. For `get_stock_price` specifically, `hitl_node` calls `interrupt()` and pauses the whole graph until the UI sends back a `Command(resume="yes"/"no")`. All other tool calls pass straight through.
+- `ToolNode` executes the approved tool(s) and loops back to `chat_node`.
 - The final assistant message streams to the UI.
 
 ---
@@ -94,12 +93,12 @@ The graph is intentionally simple:
 | Layer | Technology |
 |---|---|
 | Frontend | Streamlit |
-| LLM | Groq — `openai/gpt-oss-120b` |
+| LLM | Groq — `openai/gpt-oss-120b` (served via Groq's OpenAI-compatible endpoint) |
 | Orchestration | LangGraph (async `StateGraph`, `interrupt`/`Command` for HITL) |
 | Tool: Web Search | LangChain Tavily (`TavilySearch`) |
 | Tool: Stock Prices | Alpha Vantage API via `aiohttp` |
-| Tool: PDF RAG | `PyPDFLoader` + `RecursiveCharacterTextSplitter` + FAISS + `FastEmbedEmbeddings` (ONNX, `BAAI/bge-small-en-v1.5`) |
-| Tool: Date & Time | MCP server via `langchain-mcp-adapters` |
+| Tool: PDF RAG | `PyPDFLoader` + `RecursiveCharacterTextSplitter` + FAISS + `FastEmbedEmbeddings` (`BAAI/bge-small-en-v1.5`) |
+| Tool: Date & Time | Remote MCP server via `langchain-mcp-adapters` |
 | Voice Input | Groq Whisper (`whisper-large-v3`) via the `groq` SDK |
 | Persistence | SQLite via `aiosqlite` + `AsyncSqliteSaver` |
 | Env Config | `python-dotenv` + Streamlit Secrets |
@@ -126,8 +125,8 @@ bodhanai/
 ├── .streamlit/
 │   └── config.toml            # Streamlit theme/config
 ├── bodhanai                   # SQLite database (git-ignored)
-├── bodhanai-shm                # SQLite shared memory (git-ignored)
-└── bodhanai-wal                # SQLite write-ahead log (git-ignored)
+├── bodhanai-shm               # SQLite shared memory (git-ignored)
+└── bodhanai-wal               # SQLite write-ahead log (git-ignored)
 ```
 
 ---
@@ -159,31 +158,34 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-> Note: PDF RAG pulls in FAISS, FastEmbed (ONNX) and PyTorch-adjacent libraries, so the first install can take a few minutes.
+> **Note:** PDF RAG pulls in FAISS, FastEmbed (ONNX) and PyTorch-adjacent libraries, so the first install can take a few minutes.
 
 ---
 
 ## 🔑 Configuration
 
-BodhanAI needs three API keys. Create a `.env` file in the project root (you can copy `.env.example` as a starting point):
+BodhanAI needs four API keys. Create a `.env` file in the project root (you can copy `.env.example` as a starting point):
 
 ```env
 GROQ_API_KEY=your_groq_api_key_here
 TAVILY_API_KEY=your_tavily_api_key_here
 GROQ_SPEECH_API_KEY=your_groq_speech_api_key_here
+ALPHA_VANTAGE_API_KEY=your_alpha_vantage_api_key_here
 ```
 
 | Key | Used for | Required? |
 |---|---|---|
-| `GROQ_API_KEY` | Main chat LLM (`ChatGroq`) | Yes — app raises on startup if missing |
-| `TAVILY_API_KEY` | Web search tool | Yes — app raises on startup if missing |
-| `GROQ_SPEECH_API_KEY` | Whisper transcription for voice input | Yes, for the mic input feature (can reuse the same value as `GROQ_API_KEY`) |
+| `GROQ_API_KEY` | Main chat LLM (`ChatGroq`) | ✅ Yes — app raises on startup if missing |
+| `TAVILY_API_KEY` | Web search tool | ✅ Yes — app raises on startup if missing |
+| `GROQ_SPEECH_API_KEY` | Whisper transcription for voice input | ✅ Yes for mic input (can reuse the same value as `GROQ_API_KEY`) |
+| `ALPHA_VANTAGE_API_KEY` | Live stock price lookups | ✅ Yes for the stock price tool |
 
 > **Streamlit Cloud?** Add these as secrets under **App Settings → Secrets** in TOML format:
 > ```toml
 > GROQ_API_KEY = "your_groq_api_key_here"
 > TAVILY_API_KEY = "your_tavily_api_key_here"
 > GROQ_SPEECH_API_KEY = "your_groq_speech_api_key_here"
+> ALPHA_VANTAGE_API_KEY = "your_alpha_vantage_api_key_here"
 > ```
 
 If `GROQ_API_KEY` or `TAVILY_API_KEY` is missing, the app shows a clear error and stops safely at import time.
@@ -211,7 +213,7 @@ Upload a PDF from the sidebar for the current conversation thread. BodhanAI load
 ```
 
 ### 🔍 Web Search — Tavily
-BodhanAI can search the live web to answer questions about current events, recent news, or anything beyond its training data. Powered by `TavilySearch` with answer synthesis enabled.
+BodhanAI can search the live web to answer questions about current events, recent news, or anything beyond its training data. Powered by `TavilySearch`.
 
 ### 📈 Stock Price Lookup — with Human-in-the-Loop
 Ask about any stock ticker and BodhanAI prepares to fetch the latest price from the Alpha Vantage API. Before the call actually runs, the graph **pauses** via `hitl_node` and asks you to confirm:
@@ -250,7 +252,7 @@ While a tool is running, a live status box appears in the chat UI:
 
 1. Open the app in your browser.
 2. (Optional) Upload a PDF from the sidebar to enable document Q&A for this chat.
-3. Type a message in **"Ask Anything....."**, or record one with the mic.
+3. Type a message in the chat input, or record one with the mic.
 4. Watch the response stream word by word. If a stock price lookup is requested, confirm or cancel it when prompted.
 5. Click **New Chat** in the sidebar to start a fresh conversation (with its own PDF context).
 6. Browse and reopen previous conversations from **Recents** in the sidebar — each one is titled automatically by the LLM.
@@ -280,13 +282,13 @@ Thread behaviour:
 - On restart, all previous thread IDs are recovered and shown in the sidebar.
 - Selecting a recent chat reloads its full message history from the checkpoint.
 
-> Note: indexed PDFs (FAISS retrievers) live **in memory only** and are keyed by thread ID — they are rebuilt by re-uploading the PDF if the app process restarts.
+> **Note:** Indexed PDFs (FAISS retrievers) live **in memory only** and are keyed by thread ID — they are rebuilt by re-uploading the PDF if the app process restarts.
 
 ---
 
 ## 🔄 Async Architecture
 
-BodhanAI runs a **dedicated background event loop** on a daemon thread so that async LangGraph and tool calls can work seamlessly inside Streamlit's synchronous execution model:
+BodhanAI runs a **dedicated background event loop** on a daemon thread so that async LangGraph and tool calls work seamlessly inside Streamlit's synchronous execution model:
 
 ```python
 _ASYNC_LOOP = asyncio.new_event_loop()
@@ -305,7 +307,7 @@ All async functions are submitted via `run_async()` or `submit_async_task()` hel
 1. Push your repo to GitHub.
 2. Go to [share.streamlit.io](https://share.streamlit.io) and create a new app.
 3. Set the entry point to `app.py`.
-4. Add `GROQ_API_KEY`, `TAVILY_API_KEY`, and `GROQ_SPEECH_API_KEY` in **Secrets**.
+4. Add all four API keys in **App Settings → Secrets**.
 5. Deploy. ✅
 
 ### Heroku / Procfile-based platforms
@@ -314,7 +316,7 @@ The repo includes a `Procfile`:
 ```
 web: streamlit run app.py --server.port=$PORT --server.address=0.0.0.0
 ```
-Set the three API keys above as config vars/environment variables on your platform of choice, then deploy as you normally would for a Python app.
+Set the API keys as config vars/environment variables on your platform, then deploy as you normally would for a Python app.
 
 ### Codespaces / Dev Containers
 
@@ -340,7 +342,6 @@ The repo includes `.devcontainer/devcontainer.json` which:
 | Retriever `k` | `backend.py` → `ingest_pdf` | Edit `search_kwargs={"k": ...}` |
 | App title | `app.py` | `st.set_page_config(page_title=...)` |
 | Welcome message | `app.py` | Edit the banner markdown |
-| Chat input placeholder | `app.py` | `st.chat_input("...")` |
 | Max search results | `backend.py` | `TavilySearch(max_results=...)` |
 | MCP server URL | `backend.py` → `MultiServerMCPClient` | Swap or add MCP endpoints |
 
@@ -349,19 +350,19 @@ The repo includes `.devcontainer/devcontainer.json` which:
 ## 🐛 Troubleshooting
 
 **Missing API key error**
-→ Make sure `GROQ_API_KEY` and `TAVILY_API_KEY` exist in `.env` or Streamlit Secrets. `GROQ_SPEECH_API_KEY` is needed too if you want voice input to work.
+→ Make sure all four keys exist in `.env` or Streamlit Secrets. See the [Configuration](#-configuration) section.
 
 **MCP tools not loading**
-→ Check internet access; the MCP server is a remote HTTP endpoint. The app falls back gracefully if it fails.
+→ Check internet access; the MCP server is a remote HTTP endpoint. The app falls back gracefully if it fails to connect.
 
 **PDF upload doesn't seem to do anything / "No document has been indexed"**
-→ Make sure the upload finished (look for the "✅ PDF indexed" status in the sidebar) before asking a question, and that you're asking in the same chat thread you uploaded it to — indexed PDFs are scoped per-thread and live in memory.
+→ Wait for the "✅ PDF indexed" confirmation in the sidebar before asking questions, and make sure you're asking in the same chat thread you uploaded to — indexed PDFs are scoped per-thread and live in memory only.
 
 **Stock price requests seem stuck**
-→ Check for a confirmation prompt above the chat input — `get_stock_price` calls pause the graph until you click ✅ Yes or ❌ No.
+→ Look for a confirmation prompt above the chat input — `get_stock_price` calls pause the graph until you click ✅ Yes or ❌ No.
 
 **Voice input fails to transcribe**
-→ Confirm `GROQ_SPEECH_API_KEY` is set; this is a separate key from the main chat key.
+→ Confirm `GROQ_SPEECH_API_KEY` is set. This can be the same value as your main `GROQ_API_KEY`.
 
 **Dependencies missing**
 → Run `pip install -r requirements.txt` with your virtual environment activated.
